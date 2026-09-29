@@ -1,0 +1,25 @@
+.daml/
+*.dar
+*.log
+.idea/
+.vscode/
+*.swp
+.DS_Store
+dist/
+logs/
+*.hi
+*.o
+.direnv/
+node_modules/
+integrations/grofty/dist/
+.env
+integrations/grofty/.env
+integrations/bitsafe/dist/
+integrations/bitsafe/.env
+
+# LocalNet runtime
+localnet/run/
+localnet/logs/
+
+# Path C cn-quickstart clone (large)
+localnet/cn-quickstart/

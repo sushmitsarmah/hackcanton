@@ -1,0 +1,246 @@
+-- | LocalNet / daml script E2E demo for CBTC Collateral Desk.
+-- Success metric: one bilateral loan (propose→accept→lock→disburse→repay) under 5 minutes.
+-- Production auth: demos grant AuthorizationGranted with purpose-specific evidence
+-- (authPolicy = productionAuth). Do not skip auth in demos.
+-- FUTURE(DecMan): replace allocateParty stubs with topology-aware party onboarding.
+module Desk.Demo where
+
+import Daml.Script
+import DA.Time
+import Desk.Types
+import Desk.MockToken
+import Desk.Auth
+import Desk.CreditApplication
+import Desk.Loan
+
+-- | Grant a Grofty-style AuthorizationGranted for subject/role/purpose.
+grantAuth :
+    Party -> Party -> Party -> AuthRole -> Text -> Script (ContractId AuthorizationGranted)
+grantAuth creditOfficer grofty subject role purpose = do
+  prop <- submit creditOfficer do
+    createCmd AuthorizationProposal with
+      requester = creditOfficer
+      authority = grofty
+      subject = subject
+      role = role
+      purpose = purpose
+  submit grofty do exerciseCmd prop Grant
+
+-- | Happy path: originate and fully repay (production authRequired=True).
+runHappyPath : Script ()
+runHappyPath = script do
+  creditOfficer <- allocateParty "CreditOfficer"
+  lender <- allocateParty "Lender"
+  borrower <- allocateParty "Borrower"
+  liquidator <- allocateParty "Liquidator"
+  issuer <- allocateParty "MockIssuer"
+  grofty <- allocateParty "GroftyAuth"
+
+  lenderAuthDisburse <- grantAuth creditOfficer grofty lender LenderRole purposeDisburse
+  lenderAuthRepay <- grantAuth creditOfficer grofty lender LenderRole purposeRepay
+  borrowerAuthLock <- grantAuth creditOfficer grofty borrower BorrowerRole purposeLock
+  borrowerAuthDisburse <- grantAuth creditOfficer grofty borrower BorrowerRole purposeDisburse
+  borrowerAuthRepay <- grantAuth creditOfficer grofty borrower BorrowerRole purposeRepay
+  _liquidatorAuth <- grantAuth creditOfficer grofty liquidator LiquidatorRole purposeLiquidate
+
+  -- Also exercise RequestAuthorization async path (cancelable request).
+  reqCid <- submit creditOfficer do
+    createCmd RequestAuthorization with
+      requester = creditOfficer
+      subject = borrower
+      role = BorrowerRole
+      purpose = "Async auth request demo"
+  _ <- submit borrower do
+    exerciseCmd reqCid AcknowledgeRequest
+  _ <- submit creditOfficer do
+    exerciseCmd reqCid CancelAuthorizationRequest
+
+  now <- getTime
+  let maturity = addRelTime now (days 90)
+      terms = LoanTerms with
+        principal = 100_000.0
+        interestRate = 0.08
+        collateralAmount = 2.0
+        collateralPrice = 80_000.0
+        -- CollateralValue = 160_000; maxLtv 0.70 → max debt 112_000; liq threshold 0.85
+        liquidationThreshold = 0.85
+        maxLtv = 0.70
+        maturity = maturity
+      policy = productionAuth
+
+  mintCbtc <- submit issuer do
+    createCmd MintRequest with
+      instrumentAdmin = issuer
+      recipient = borrower
+      asset = CBTC
+      amount = 2.0
+  cbtcCid <- submit borrower do
+    exerciseCmd mintCbtc AcceptMint
+
+  mintUsdc <- submit issuer do
+    createCmd MintRequest with
+      instrumentAdmin = issuer
+      recipient = lender
+      asset = USDCx
+      amount = 100_000.0
+  usdcCid <- submit lender do
+    exerciseCmd mintUsdc AcceptMint
+
+  mintLiq <- submit issuer do
+    createCmd MintRequest with
+      instrumentAdmin = issuer
+      recipient = liquidator
+      asset = USDCx
+      amount = 50_000.0
+  _ <- submit liquidator do
+    exerciseCmd mintLiq AcceptMint
+
+  proposalCid <- submit creditOfficer do
+    createCmd LoanProposal with
+      creditOfficer = creditOfficer
+      lender = lender
+      borrower = borrower
+      liquidator = liquidator
+      terms = terms
+      authPolicy = policy
+      lenderAuthCid = Some lenderAuthDisburse
+      borrowerAuthCid = Some borrowerAuthDisburse
+      liquidatorAuthCid = None
+
+  lenderAccCid <- submit lender do
+    exerciseCmd proposalCid LenderAccept
+
+  acceptedCid <- submit borrower do
+    exerciseCmd lenderAccCid BorrowerAccept
+
+  prepCid <- submit creditOfficer do
+    createCmd PrepareOrigination with
+      creditOfficer = creditOfficer
+      lender = lender
+      borrower = borrower
+      liquidator = liquidator
+      terms = terms
+      authPolicy = policy
+      acceptedTermsCid = acceptedCid
+
+  readyCid <- submit (actAs [borrower, creditOfficer, lender]) do
+    exerciseCmd prepCid LockAndPrepare with
+      borrowerCbtc = cbtcCid
+      borrowerAuthCid = Some borrowerAuthLock
+
+  loanCid <- submit (actAs [lender, borrower, creditOfficer]) do
+    exerciseCmd readyCid Disburse with
+      lenderUsdcx = usdcCid
+      lenderAuthCid = Some lenderAuthDisburse
+      borrowerAuthCid = Some borrowerAuthDisburse
+
+  passTime (days 30)
+  debt <- submit creditOfficer do
+    exerciseCmd loanCid PeekDebt
+  _hfLtv <- submit creditOfficer do
+    exerciseCmd loanCid PeekHealth
+
+  let due = debtTotal debt
+  mintRepay <- submit issuer do
+    createCmd MintRequest with
+      instrumentAdmin = issuer
+      recipient = borrower
+      asset = USDCx
+      amount = due + 1.0
+  repayCid <- submit borrower do
+    exerciseCmd mintRepay AcceptMint
+
+  _returnedCbtc <- submit (actAs [borrower, creditOfficer, lender]) do
+    exerciseCmd loanCid Repay with
+      repaymentUsdcx = repayCid
+      borrowerAuthCid = Some borrowerAuthRepay
+      lenderAuthCid = Some lenderAuthRepay
+
+  pure () -- happy path OK: propose→accept→lock→disburse→repay
+
+-- | Alternate path: disburse then liquidate after HF breach via mark-price drop.
+runLiquidatePath : Script ()
+runLiquidatePath = script do
+  creditOfficer <- allocateParty "CreditOfficer"
+  lender <- allocateParty "Lender"
+  borrower <- allocateParty "Borrower"
+  liquidator <- allocateParty "Liquidator"
+  issuer <- allocateParty "MockIssuer"
+  grofty <- allocateParty "GroftyAuth"
+
+  lenderAuthDisburse <- grantAuth creditOfficer grofty lender LenderRole purposeDisburse
+  borrowerAuthLock <- grantAuth creditOfficer grofty borrower BorrowerRole purposeLock
+  borrowerAuthDisburse <- grantAuth creditOfficer grofty borrower BorrowerRole purposeDisburse
+  liquidatorAuth <- grantAuth creditOfficer grofty liquidator LiquidatorRole purposeLiquidate
+
+  now <- getTime
+  let maturity = addRelTime now (days 365)
+      terms = LoanTerms with
+        principal = 100_000.0
+        interestRate = 0.10
+        collateralAmount = 1.0
+        collateralPrice = 130_000.0
+        -- HF = 130000*0.9/100000 = 1.17; LTV ≈ 0.769 < 0.85
+        liquidationThreshold = 0.90
+        maxLtv = 0.85
+        maturity = maturity
+      policy = productionAuth
+
+  mintCbtc <- submit issuer do
+    createCmd MintRequest with
+      instrumentAdmin = issuer
+      recipient = borrower
+      asset = CBTC
+      amount = 1.0
+  cbtcCid <- submit borrower do
+    exerciseCmd mintCbtc AcceptMint
+
+  mintUsdc <- submit issuer do
+    createCmd MintRequest with
+      instrumentAdmin = issuer
+      recipient = lender
+      asset = USDCx
+      amount = 100_000.0
+  usdcCid <- submit lender do
+    exerciseCmd mintUsdc AcceptMint
+
+  proposalCid <- submit creditOfficer do
+    createCmd LoanProposal with
+      creditOfficer
+      lender
+      borrower
+      liquidator
+      terms
+      authPolicy = policy
+      lenderAuthCid = Some lenderAuthDisburse
+      borrowerAuthCid = Some borrowerAuthDisburse
+      liquidatorAuthCid = Some liquidatorAuth
+  lenderAccCid <- submit lender do exerciseCmd proposalCid LenderAccept
+  acceptedCid <- submit borrower do exerciseCmd lenderAccCid BorrowerAccept
+
+  prepCid <- submit creditOfficer do
+    createCmd PrepareOrigination with
+      creditOfficer; lender; borrower; liquidator; terms
+      authPolicy = policy
+      acceptedTermsCid = acceptedCid
+
+  readyCid <- submit (actAs [borrower, creditOfficer, lender]) do
+    exerciseCmd prepCid LockAndPrepare with
+      borrowerCbtc = cbtcCid
+      borrowerAuthCid = Some borrowerAuthLock
+
+  loanCid <- submit (actAs [lender, borrower, creditOfficer]) do
+    exerciseCmd readyCid Disburse with
+      lenderUsdcx = usdcCid
+      lenderAuthCid = Some lenderAuthDisburse
+      borrowerAuthCid = Some borrowerAuthDisburse
+
+  -- Drop mark price so HF = 90_000 * 0.9 / 100_000 = 0.81 < 1.
+  loanCid2 <- submit creditOfficer do
+    exerciseCmd loanCid UpdateMarkPrice with newPrice = 90_000.0
+
+  _seized <- submit (actAs [liquidator, creditOfficer]) do
+    exerciseCmd loanCid2 LiquidateFast with
+      liquidatorAuthCid = Some liquidatorAuth
+
+  pure () -- LiquidateFast path OK (HF breach; pre-authorized; no DecMan wait)

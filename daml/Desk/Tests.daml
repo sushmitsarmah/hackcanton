@@ -1,0 +1,632 @@
+-- | Production-hardening tests for CBTC Collateral Desk (daml test / daml script).
+-- Covers: pure HF/interest, happy path, LiquidateFast path, auth fail-closed, edge cases,
+-- and gated RequestGovernedCustodyRelease (fails without live DecMan — do not fake).
+-- Note: allocateFixture is a setup helper; daml test may list it as ok (harmless).
+module Desk.Tests where
+
+import Daml.Script
+import DA.Time
+import Desk.Types
+import Desk.MockToken
+import Desk.TokenPin
+import Desk.TokenAdapter
+import Desk.Auth
+import Desk.CreditApplication
+import Desk.CollateralCustody
+import Desk.Loan
+import Desk.Demo (grantAuth)
+
+-- Parties used across fixtures
+data FixtureParties = FixtureParties with
+    creditOfficer : Party
+    lender : Party
+    borrower : Party
+    liquidator : Party
+    issuer : Party
+    grofty : Party
+
+allocateFixture : Script FixtureParties
+allocateFixture = do
+  creditOfficer <- allocateParty "CO"
+  lender <- allocateParty "L"
+  borrower <- allocateParty "B"
+  liquidator <- allocateParty "X"
+  issuer <- allocateParty "I"
+  grofty <- allocateParty "G"
+  pure FixtureParties with ..
+
+sampleTerms : Time -> LoanTerms
+sampleTerms now = LoanTerms with
+  principal = 100_000.0
+  interestRate = 0.08
+  collateralAmount = 2.0
+  collateralPrice = 80_000.0
+  liquidationThreshold = 0.85
+  maxLtv = 0.70
+  maturity = addRelTime now (days 90)
+
+liqTerms : Time -> LoanTerms
+liqTerms now = LoanTerms with
+  principal = 100_000.0
+  interestRate = 0.10
+  collateralAmount = 1.0
+  collateralPrice = 130_000.0
+  liquidationThreshold = 0.90
+  maxLtv = 0.85
+  maturity = addRelTime now (days 365)
+
+mintHolding : Party -> Party -> AssetTag -> Money -> Script (HoldingCid)
+mintHolding issuer recipient asset amount = do
+  req <- submit issuer do
+    createCmd MintRequest with
+      instrumentAdmin = issuer
+      recipient = recipient
+      asset = asset
+      amount = amount
+  submit recipient do exerciseCmd req AcceptMint
+
+-- | Originate through ReadyToDisburse (production auth).
+originateReady :
+    FixtureParties
+    -> LoanTerms
+    -> AuthPolicy
+    -> Money
+    -> Script
+        ( ContractId ReadyToDisburse
+        , HoldingCid
+        , ContractId AuthorizationGranted
+        , ContractId AuthorizationGranted
+        , ContractId AuthorizationGranted
+        )
+originateReady p terms policy cbtcAmt = do
+  lenderAuthD <- grantAuth p.creditOfficer p.grofty p.lender LenderRole purposeDisburse
+  borrowerAuthL <- grantAuth p.creditOfficer p.grofty p.borrower BorrowerRole purposeLock
+  borrowerAuthD <- grantAuth p.creditOfficer p.grofty p.borrower BorrowerRole purposeDisburse
+  cbtcCid <- mintHolding p.issuer p.borrower CBTC cbtcAmt
+  usdcCid <- mintHolding p.issuer p.lender USDCx terms.principal
+
+  proposalCid <- submit p.creditOfficer do
+    createCmd LoanProposal with
+      creditOfficer = p.creditOfficer
+      lender = p.lender
+      borrower = p.borrower
+      liquidator = p.liquidator
+      terms = terms
+      authPolicy = policy
+      lenderAuthCid = Some lenderAuthD
+      borrowerAuthCid = Some borrowerAuthD
+      liquidatorAuthCid = None
+  lenderAccCid <- submit p.lender do exerciseCmd proposalCid LenderAccept
+  acceptedCid <- submit p.borrower do exerciseCmd lenderAccCid BorrowerAccept
+
+  prepCid <- submit p.creditOfficer do
+    createCmd PrepareOrigination with
+      creditOfficer = p.creditOfficer
+      lender = p.lender
+      borrower = p.borrower
+      liquidator = p.liquidator
+      terms = terms
+      authPolicy = policy
+      acceptedTermsCid = acceptedCid
+
+  readyCid <- submit (actAs [p.borrower, p.creditOfficer, p.lender]) do
+    exerciseCmd prepCid LockAndPrepare with
+      borrowerCbtc = cbtcCid
+      borrowerAuthCid = if policy.authRequired then Some borrowerAuthL else None
+
+  pure (readyCid, usdcCid, lenderAuthD, borrowerAuthD, borrowerAuthL)
+
+disburseLoan :
+    FixtureParties
+    -> ContractId ReadyToDisburse
+    -> HoldingCid
+    -> Optional (ContractId AuthorizationGranted)
+    -> Optional (ContractId AuthorizationGranted)
+    -> Script (ContractId Loan)
+disburseLoan p readyCid usdcCid lenderAuth borrowerAuth =
+  submit (actAs [p.lender, p.borrower, p.creditOfficer]) do
+    exerciseCmd readyCid Disburse with
+      lenderUsdcx = usdcCid
+      lenderAuthCid = lenderAuth
+      borrowerAuthCid = borrowerAuth
+
+-- ---------------------------------------------------------------------------
+-- Pure function tests
+-- ---------------------------------------------------------------------------
+
+-- ---------------------------------------------------------------------------
+-- CIP-0112 adapter / pin guards (Point 4)
+-- ---------------------------------------------------------------------------
+
+testTokenPinsStillPlaceholder : Script ()
+testTokenPinsStillPlaceholder = script do
+  assertMsg "active LocalNet pins must still be PLACEHOLDER" $
+    allPinsStillPlaceholder activeTokenPins
+  assertMsg "DevNet pins must still be PLACEHOLDER until TOKEN_PIN.md filled" $
+    allPinsStillPlaceholder devNetPins
+  assertMsg "MainNet pins must still be PLACEHOLDER (do not invent hashes)" $
+    allPinsStillPlaceholder mainNetPins
+  assertMsg "adapter network is LocalNet" $ adapterNetwork == LocalNet
+  let (pkg, iface, instr) = cipPinTriple CBTC
+  assertMsg "CBTC package placeholder" $ isUnpinnedPlaceholder pkg
+  assertMsg "CBTC instrument placeholder" $ isUnpinnedPlaceholder instr
+  assertMsg "holding interface id present" $ iface /= ""
+  debug "token pin placeholders OK (LocalNet MockHolding default)"
+
+testMockHoldingGetView : Script ()
+testMockHoldingGetView = script do
+  p <- allocateFixture
+  cid <- mintHolding p.issuer p.borrower CBTC 1.5
+  view <- submit p.borrower do exerciseCmd cid GetView
+  assertMsg "GetView owner" $ view.owner == p.borrower
+  assertMsg "GetView asset" $ view.asset == CBTC
+  assertMsg "GetView amount" $ view.amount == 1.5
+  assertMsg "GetView package pin is placeholder" $
+    isUnpinnedPlaceholder view.packageIdPlaceholder
+  assertMsg "GetView instrument pin is placeholder" $
+    isUnpinnedPlaceholder view.instrumentIdPlaceholder
+  debug "MockHolding GetView OK (CIP-0112 adapter shape)"
+
+testDebtAndHealthFactor : Script ()
+testDebtAndHealthFactor = script do
+  let debt = Debt with principalOutstanding = 100_000.0; accruedInterest = 2_000.0
+  assertMsg "debtTotal" $ debtTotal debt == 102_000.0
+  assertMsg "collateralValue" $ collateralValue 2.0 80_000.0 == 160_000.0
+  -- HF = 160000 * 0.85 / 102000 ≈ 1.333
+  let hf = healthFactor 2.0 80_000.0 0.85 debt
+  assertMsg "HF healthy" $ hf > 1.0
+  assertMsg "not breached" $ not (isHfBreached 2.0 80_000.0 0.85 debt)
+  let ltv = loanToValue 2.0 80_000.0 debt
+  assertMsg "LTV" $ ltv < 0.70 || ltv == 102_000.0 / 160_000.0
+  assertMsg "within maxLtv" $ isWithinMaxLtv 2.0 80_000.0 0.70 debt
+  -- Breach: price drop
+  assertMsg "HF breached at low price" $
+    isHfBreached 1.0 90_000.0 0.90 (Debt with principalOutstanding = 100_000.0; accruedInterest = 0.0)
+  pure ()
+
+testValidateTermsAndRevalidate : Script ()
+testValidateTermsAndRevalidate = script do
+  now <- getTime
+  let t = sampleTerms now
+  assertMsg "valid terms" $ validateTerms t
+  assertMsg "maxLtv must be < liq threshold" $
+    not (validateTerms (t with maxLtv = 0.90))
+  let debt0 = Debt with principalOutstanding = t.principal; accruedInterest = 0.0
+  assertMsg "healthy at origination" $ revalidateHealthy t t.collateralAmount debt0
+  assertMsg "unhealthy if under-collateralized" $
+    not (revalidateHealthy t 0.5 debt0)
+  pure ()
+
+testAccrueInterestIdempotent : Script ()
+testAccrueInterestIdempotent = script do
+  now <- getTime
+  let later = addRelTime now (days 365)
+      -- 100k * 0.08 * 1y = 8000
+      once = accrueInterest 100_000.0 0.08 now later
+      again = accrueInterest 100_000.0 0.08 now later
+      zeroElapsed = accrueInterest 100_000.0 0.08 now now
+  assertMsg "year interest" $ once == 8_000.0
+  assertMsg "idempotent same window" $ once == again
+  assertMsg "zero elapsed" $ zeroElapsed == 0.0
+  let d1 = accruedDebt 100_000.0 0.0 0.08 now later
+      d2 = accruedDebt 100_000.0 d1.accruedInterest 0.08 later later
+  assertMsg "accrue at same time adds zero" $ d2.accruedInterest == d1.accruedInterest
+  pure ()
+
+-- ---------------------------------------------------------------------------
+-- Happy / liquidate paths
+-- ---------------------------------------------------------------------------
+
+testHappyPathRepay : Script ()
+testHappyPathRepay = script do
+  p <- allocateFixture
+  now <- getTime
+  let terms = sampleTerms now
+      policy = productionAuth
+  (readyCid, usdcCid, lenderAuthD, borrowerAuthD, _lock) <-
+    originateReady p terms policy 2.0
+  loanCid <- disburseLoan p readyCid usdcCid (Some lenderAuthD) (Some borrowerAuthD)
+
+  passTime (days 30)
+  debt <- submit p.creditOfficer do exerciseCmd loanCid PeekDebt
+  lenderAuthR <- grantAuth p.creditOfficer p.grofty p.lender LenderRole purposeRepay
+  borrowerAuthR <- grantAuth p.creditOfficer p.grofty p.borrower BorrowerRole purposeRepay
+  repayCid <- mintHolding p.issuer p.borrower USDCx (debtTotal debt + 1.0)
+  _ <- submit (actAs [p.borrower, p.creditOfficer, p.lender]) do
+    exerciseCmd loanCid Repay with
+      repaymentUsdcx = repayCid
+      borrowerAuthCid = Some borrowerAuthR
+      lenderAuthCid = Some lenderAuthR
+  pure ()
+
+-- | FAST PATH: HF breach → LiquidateFast succeeds (pre-authorized liquidator, no DecMan).
+testLiquidateOnHfBreach : Script ()
+testLiquidateOnHfBreach = script do
+  p <- allocateFixture
+  now <- getTime
+  let terms = liqTerms now
+      policy = productionAuth
+  (readyCid, usdcCid, lenderAuthD, borrowerAuthD, _) <-
+    originateReady p terms policy 1.0
+  loanCid <- disburseLoan p readyCid usdcCid (Some lenderAuthD) (Some borrowerAuthD)
+  liquidatorAuth <- grantAuth p.creditOfficer p.grofty p.liquidator LiquidatorRole purposeLiquidate
+  loanCid2 <- submit p.creditOfficer do
+    exerciseCmd loanCid UpdateMarkPrice with newPrice = 90_000.0
+  _ <- submit (actAs [p.liquidator, p.creditOfficer]) do
+    exerciseCmd loanCid2 LiquidateFast with liquidatorAuthCid = Some liquidatorAuth
+  pure ()
+
+-- ---------------------------------------------------------------------------
+-- Auth fail-closed
+-- ---------------------------------------------------------------------------
+
+testDisburseFailsWithoutAuth : Script ()
+testDisburseFailsWithoutAuth = script do
+  p <- allocateFixture
+  now <- getTime
+  let terms = sampleTerms now
+      policy = productionAuth
+  (readyCid, usdcCid, _, _, _) <- originateReady p terms policy 2.0
+  -- Missing auth CIDs must fail when authRequired
+  submitMustFail (actAs [p.lender, p.borrower, p.creditOfficer]) do
+    exerciseCmd readyCid Disburse with
+      lenderUsdcx = usdcCid
+      lenderAuthCid = None
+      borrowerAuthCid = None
+  pure ()
+
+testDisburseFailsWrongRoleAuth : Script ()
+testDisburseFailsWrongRoleAuth = script do
+  p <- allocateFixture
+  now <- getTime
+  let terms = sampleTerms now
+      policy = productionAuth
+  (readyCid, usdcCid, _, borrowerAuthD, _) <- originateReady p terms policy 2.0
+  -- Lender CID is actually a borrower grant → subject/role mismatch
+  submitMustFail (actAs [p.lender, p.borrower, p.creditOfficer]) do
+    exerciseCmd readyCid Disburse with
+      lenderUsdcx = usdcCid
+      lenderAuthCid = Some borrowerAuthD
+      borrowerAuthCid = Some borrowerAuthD
+  pure ()
+
+testDisburseFailsWrongPurpose : Script ()
+testDisburseFailsWrongPurpose = script do
+  p <- allocateFixture
+  now <- getTime
+  let terms = sampleTerms now
+      policy = productionAuth
+  (readyCid, usdcCid, _, borrowerAuthD, _) <- originateReady p terms policy 2.0
+  wrongPurpose <- grantAuth p.creditOfficer p.grofty p.lender LenderRole purposeRepay
+  submitMustFail (actAs [p.lender, p.borrower, p.creditOfficer]) do
+    exerciseCmd readyCid Disburse with
+      lenderUsdcx = usdcCid
+      lenderAuthCid = Some wrongPurpose
+      borrowerAuthCid = Some borrowerAuthD
+  pure ()
+
+testAuthOptionalModeAllowsNone : Script ()
+testAuthOptionalModeAllowsNone = script do
+  p <- allocateFixture
+  now <- getTime
+  let terms = sampleTerms now
+      policy = demoAuthOptional
+  -- With auth optional, lock/disburse without grants
+  cbtcCid <- mintHolding p.issuer p.borrower CBTC 2.0
+  usdcCid <- mintHolding p.issuer p.lender USDCx terms.principal
+  proposalCid <- submit p.creditOfficer do
+    createCmd LoanProposal with
+      creditOfficer = p.creditOfficer
+      lender = p.lender
+      borrower = p.borrower
+      liquidator = p.liquidator
+      terms = terms
+      authPolicy = policy
+      lenderAuthCid = None
+      borrowerAuthCid = None
+      liquidatorAuthCid = None
+  lenderAccCid <- submit p.lender do exerciseCmd proposalCid LenderAccept
+  acceptedCid <- submit p.borrower do exerciseCmd lenderAccCid BorrowerAccept
+  prepCid <- submit p.creditOfficer do
+    createCmd PrepareOrigination with
+      creditOfficer = p.creditOfficer
+      lender = p.lender
+      borrower = p.borrower
+      liquidator = p.liquidator
+      terms = terms
+      authPolicy = policy
+      acceptedTermsCid = acceptedCid
+  readyCid <- submit (actAs [p.borrower, p.creditOfficer, p.lender]) do
+    exerciseCmd prepCid LockAndPrepare with
+      borrowerCbtc = cbtcCid
+      borrowerAuthCid = None
+  _loanCid <- disburseLoan p readyCid usdcCid None None
+  pure ()
+
+-- ---------------------------------------------------------------------------
+-- Edge cases
+-- ---------------------------------------------------------------------------
+
+-- | FAST PATH guard: healthy position (HF >= 1, before maturity) → LiquidateFast fails.
+testHealthyLiquidateFails : Script ()
+testHealthyLiquidateFails = script do
+  p <- allocateFixture
+  now <- getTime
+  let terms = sampleTerms now
+      policy = productionAuth
+  (readyCid, usdcCid, lenderAuthD, borrowerAuthD, _) <-
+    originateReady p terms policy 2.0
+  loanCid <- disburseLoan p readyCid usdcCid (Some lenderAuthD) (Some borrowerAuthD)
+  liquidatorAuth <- grantAuth p.creditOfficer p.grofty p.liquidator LiquidatorRole purposeLiquidate
+  submitMustFail (actAs [p.liquidator, p.creditOfficer]) do
+    exerciseCmd loanCid LiquidateFast with liquidatorAuthCid = Some liquidatorAuth
+  pure ()
+
+testDoubleDisburseFails : Script ()
+testDoubleDisburseFails = script do
+  p <- allocateFixture
+  now <- getTime
+  let terms = sampleTerms now
+      policy = productionAuth
+  (readyCid, usdcCid, lenderAuthD, borrowerAuthD, _) <-
+    originateReady p terms policy 2.0
+  _loanCid <- disburseLoan p readyCid usdcCid (Some lenderAuthD) (Some borrowerAuthD)
+  -- ReadyToDisburse consumed — second Disburse must fail
+  usdc2 <- mintHolding p.issuer p.lender USDCx terms.principal
+  submitMustFail (actAs [p.lender, p.borrower, p.creditOfficer]) do
+    exerciseCmd readyCid Disburse with
+      lenderUsdcx = usdc2
+      lenderAuthCid = Some lenderAuthD
+      borrowerAuthCid = Some borrowerAuthD
+  pure ()
+
+testDoubleLockFails : Script ()
+testDoubleLockFails = script do
+  p <- allocateFixture
+  now <- getTime
+  let terms = sampleTerms now
+      policy = productionAuth
+  borrowerAuthL <- grantAuth p.creditOfficer p.grofty p.borrower BorrowerRole purposeLock
+  borrowerAuthD <- grantAuth p.creditOfficer p.grofty p.borrower BorrowerRole purposeDisburse
+  lenderAuthD <- grantAuth p.creditOfficer p.grofty p.lender LenderRole purposeDisburse
+  cbtc1 <- mintHolding p.issuer p.borrower CBTC 2.0
+  cbtc2 <- mintHolding p.issuer p.borrower CBTC 2.0
+
+  proposalCid <- submit p.creditOfficer do
+    createCmd LoanProposal with
+      creditOfficer = p.creditOfficer
+      lender = p.lender
+      borrower = p.borrower
+      liquidator = p.liquidator
+      terms = terms
+      authPolicy = policy
+      lenderAuthCid = Some lenderAuthD
+      borrowerAuthCid = Some borrowerAuthD
+      liquidatorAuthCid = None
+  lenderAccCid <- submit p.lender do exerciseCmd proposalCid LenderAccept
+  acceptedCid <- submit p.borrower do exerciseCmd lenderAccCid BorrowerAccept
+
+  -- Two prepare contracts share the same AcceptedTerms
+  prep1 <- submit p.creditOfficer do
+    createCmd PrepareOrigination with
+      creditOfficer = p.creditOfficer
+      lender = p.lender
+      borrower = p.borrower
+      liquidator = p.liquidator
+      terms = terms
+      authPolicy = policy
+      acceptedTermsCid = acceptedCid
+  prep2 <- submit p.creditOfficer do
+    createCmd PrepareOrigination with
+      creditOfficer = p.creditOfficer
+      lender = p.lender
+      borrower = p.borrower
+      liquidator = p.liquidator
+      terms = terms
+      authPolicy = policy
+      acceptedTermsCid = acceptedCid
+
+  _ready <- submit (actAs [p.borrower, p.creditOfficer, p.lender]) do
+    exerciseCmd prep1 LockAndPrepare with
+      borrowerCbtc = cbtc1
+      borrowerAuthCid = Some borrowerAuthL
+  -- Second lock must fail: AcceptedTerms already archived
+  submitMustFail (actAs [p.borrower, p.creditOfficer, p.lender]) do
+    exerciseCmd prep2 LockAndPrepare with
+      borrowerCbtc = cbtc2
+      borrowerAuthCid = Some borrowerAuthL
+  pure ()
+
+testUnderpaidRepayFails : Script ()
+testUnderpaidRepayFails = script do
+  p <- allocateFixture
+  now <- getTime
+  let terms = sampleTerms now
+      policy = productionAuth
+  (readyCid, usdcCid, lenderAuthD, borrowerAuthD, _) <-
+    originateReady p terms policy 2.0
+  loanCid <- disburseLoan p readyCid usdcCid (Some lenderAuthD) (Some borrowerAuthD)
+  passTime (days 10)
+  debt <- submit p.creditOfficer do exerciseCmd loanCid PeekDebt
+  lenderAuthR <- grantAuth p.creditOfficer p.grofty p.lender LenderRole purposeRepay
+  borrowerAuthR <- grantAuth p.creditOfficer p.grofty p.borrower BorrowerRole purposeRepay
+  -- Pay less than due
+  underpay <- mintHolding p.issuer p.borrower USDCx (debtTotal debt - 1.0)
+  submitMustFail (actAs [p.borrower, p.creditOfficer, p.lender]) do
+    exerciseCmd loanCid Repay with
+      repaymentUsdcx = underpay
+      borrowerAuthCid = Some borrowerAuthR
+      lenderAuthCid = Some lenderAuthR
+  pure ()
+
+testLockRejectsWrongAsset : Script ()
+testLockRejectsWrongAsset = script do
+  p <- allocateFixture
+  now <- getTime
+  let terms = sampleTerms now
+      policy = productionAuth
+  borrowerAuthL <- grantAuth p.creditOfficer p.grofty p.borrower BorrowerRole purposeLock
+  borrowerAuthD <- grantAuth p.creditOfficer p.grofty p.borrower BorrowerRole purposeDisburse
+  lenderAuthD <- grantAuth p.creditOfficer p.grofty p.lender LenderRole purposeDisburse
+  -- USDCx instead of CBTC
+  wrongAsset <- mintHolding p.issuer p.borrower USDCx 2.0
+
+  proposalCid <- submit p.creditOfficer do
+    createCmd LoanProposal with
+      creditOfficer = p.creditOfficer
+      lender = p.lender
+      borrower = p.borrower
+      liquidator = p.liquidator
+      terms = terms
+      authPolicy = policy
+      lenderAuthCid = Some lenderAuthD
+      borrowerAuthCid = Some borrowerAuthD
+      liquidatorAuthCid = None
+  lenderAccCid <- submit p.lender do exerciseCmd proposalCid LenderAccept
+  acceptedCid <- submit p.borrower do exerciseCmd lenderAccCid BorrowerAccept
+  prepCid <- submit p.creditOfficer do
+    createCmd PrepareOrigination with
+      creditOfficer = p.creditOfficer
+      lender = p.lender
+      borrower = p.borrower
+      liquidator = p.liquidator
+      terms = terms
+      authPolicy = policy
+      acceptedTermsCid = acceptedCid
+  submitMustFail (actAs [p.borrower, p.creditOfficer, p.lender]) do
+    exerciseCmd prepCid LockAndPrepare with
+      borrowerCbtc = wrongAsset
+      borrowerAuthCid = Some borrowerAuthL
+  pure ()
+
+testAddCollateralRejectsWrongAsset : Script ()
+testAddCollateralRejectsWrongAsset = script do
+  p <- allocateFixture
+  now <- getTime
+  let terms = sampleTerms now
+      policy = productionAuth
+  (readyCid, usdcCid, lenderAuthD, borrowerAuthD, _) <-
+    originateReady p terms policy 2.0
+  loanCid <- disburseLoan p readyCid usdcCid (Some lenderAuthD) (Some borrowerAuthD)
+  addAuth <- grantAuth p.creditOfficer p.grofty p.borrower BorrowerRole purposeAddCollateral
+  wrong <- mintHolding p.issuer p.borrower USDCx 1.0
+  submitMustFail (actAs [p.borrower, p.creditOfficer]) do
+    exerciseCmd loanCid AddCollateral with
+      extraCbtc = wrong
+      borrowerAuthCid = Some addAuth
+  pure ()
+
+testWrongPartyCannotDisburse : Script ()
+testWrongPartyCannotDisburse = script do
+  p <- allocateFixture
+  now <- getTime
+  let terms = sampleTerms now
+      policy = productionAuth
+  (readyCid, usdcCid, lenderAuthD, borrowerAuthD, _) <-
+    originateReady p terms policy 2.0
+  -- Missing lender among controllers
+  submitMustFail (actAs [p.borrower, p.creditOfficer]) do
+    exerciseCmd readyCid Disburse with
+      lenderUsdcx = usdcCid
+      lenderAuthCid = Some lenderAuthD
+      borrowerAuthCid = Some borrowerAuthD
+  pure ()
+
+testAccrueIdempotentOnLedger : Script ()
+testAccrueIdempotentOnLedger = script do
+  p <- allocateFixture
+  now <- getTime
+  let terms = sampleTerms now
+      policy = productionAuth
+  (readyCid, usdcCid, lenderAuthD, borrowerAuthD, _) <-
+    originateReady p terms policy 2.0
+  loanCid <- disburseLoan p readyCid usdcCid (Some lenderAuthD) (Some borrowerAuthD)
+  passTime (days 30)
+  loan1 <- submit p.creditOfficer do exerciseCmd loanCid Accrue
+  debt1 <- submit p.creditOfficer do exerciseCmd loan1 PeekDebt
+  -- Accrue again at same ledger time → interest unchanged
+  loan2 <- submit p.creditOfficer do exerciseCmd loan1 Accrue
+  debt2 <- submit p.creditOfficer do exerciseCmd loan2 PeekDebt
+  assertMsg "accrue idempotent per time" $
+    debt1.accruedInterest == debt2.accruedInterest
+  pure ()
+
+testCustodyInvariantAfterLock : Script ()
+testCustodyInvariantAfterLock = script do
+  p <- allocateFixture
+  now <- getTime
+  let terms = sampleTerms now
+      policy = productionAuth
+  (readyCid, usdcCid, lenderAuthD, borrowerAuthD, _) <-
+    originateReady p terms policy 2.0
+  -- Peek vault via Disburse path assertions; also exercise AssertCustodyInvariant
+  ready <- queryContractId p.creditOfficer readyCid
+  case ready of
+    None -> abort "ready missing"
+    Some r -> do
+      _ <- submit p.creditOfficer do
+        exerciseCmd r.vaultCid AssertCustodyInvariant
+      _ <- submit p.creditOfficer do
+        exerciseCmd r.claimCid AssertClaimMatchesVault
+      loanCid <- disburseLoan p readyCid usdcCid (Some lenderAuthD) (Some borrowerAuthD)
+      loan <- queryContractId p.creditOfficer loanCid
+      case loan of
+        None -> abort "loan missing"
+        Some l -> do
+          _ <- submit p.creditOfficer do
+            exerciseCmd l.vaultCid AssertCustodyInvariant
+          pure ()
+
+-- ---------------------------------------------------------------------------
+-- Fast path vs DecMan-gated custody (Point 6)
+-- ---------------------------------------------------------------------------
+
+-- | GATED PATH: RequestGovernedCustodyRelease fails without DecMan evidence (do not fake).
+testGovernedCustodyReleaseRequiresDecMan : Script ()
+testGovernedCustodyReleaseRequiresDecMan = script do
+  p <- allocateFixture
+  now <- getTime
+  let terms = sampleTerms now
+      policy = productionAuth
+  (readyCid, usdcCid, lenderAuthD, borrowerAuthD, _) <-
+    originateReady p terms policy 2.0
+  loanCid <- disburseLoan p readyCid usdcCid (Some lenderAuthD) (Some borrowerAuthD)
+  loan <- queryContractId p.creditOfficer loanCid
+  case loan of
+    None -> abort "loan missing"
+    Some l -> do
+      -- Missing evidence → abort (gated path not live)
+      submitMustFail (actAs [p.creditOfficer, p.lender]) do
+        exerciseCmd l.vaultCid RequestGovernedCustodyRelease with
+          kind = "release-to-borrower"
+          txConfirmationEvidence = None
+          topologyEvidence = None
+          appGovernanceEvidence = None
+      -- Scaffold-looking evidence still fails — settlement not wired (do not fake DecMan)
+      submitMustFail (actAs [p.creditOfficer, p.lender]) do
+        exerciseCmd l.vaultCid RequestGovernedCustodyRelease with
+          kind = "admin-seize"
+          txConfirmationEvidence = Some "scaffold-not-live"
+          topologyEvidence = None
+          appGovernanceEvidence = None
+      -- Loan still alive after gated-path refusals
+      still <- queryContractId p.creditOfficer loanCid
+      assertMsg "loan remains after gated refusals" $ still /= None
+      pure ()
+
+-- | Document: Liquidate alias still exercises the same FAST PATH as LiquidateFast.
+testLiquidateAliasFastPath : Script ()
+testLiquidateAliasFastPath = script do
+  p <- allocateFixture
+  now <- getTime
+  let terms = liqTerms now
+      policy = productionAuth
+  (readyCid, usdcCid, lenderAuthD, borrowerAuthD, _) <-
+    originateReady p terms policy 1.0
+  loanCid <- disburseLoan p readyCid usdcCid (Some lenderAuthD) (Some borrowerAuthD)
+  liquidatorAuth <- grantAuth p.creditOfficer p.grofty p.liquidator LiquidatorRole purposeLiquidate
+  loanCid2 <- submit p.creditOfficer do
+    exerciseCmd loanCid UpdateMarkPrice with newPrice = 90_000.0
+  _ <- submit (actAs [p.liquidator, p.creditOfficer]) do
+    exerciseCmd loanCid2 Liquidate with liquidatorAuthCid = Some liquidatorAuth
+  pure ()

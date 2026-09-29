@@ -1,0 +1,30 @@
+{
+  "name": "@cbtc-collateral-desk/bitsafe",
+  "version": "0.1.0",
+  "private": true,
+  "description": "BitSafe Decentralization Manager hooks scaffolding for CBTC Collateral Desk (no fake live DecMan)",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "prove:scaffold": "tsx scripts/prove-decman-hooks.ts",
+    "prove:http": "DECMAN_MODE=http tsx scripts/prove-decman-hooks.ts",
+    "prove": "tsx scripts/prove-decman-hooks.ts"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.10",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.2"
+  }
+}

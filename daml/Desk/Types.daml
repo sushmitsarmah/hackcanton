@@ -1,0 +1,156 @@
+-- | Shared types for the CBTC Collateral Desk MVP.
+-- CBTC = Bitcoin-backed collateral instrument on Canton (NOT a traditional RWA label).
+-- USDCx = mock USD stablecoin used for disbursement / repayment.
+-- Formulas (PROJECT_PLAN §5.5):
+--   Debt = Principal + AccruedInterest
+--   HF   = CollateralValue × LiquidationThreshold / Debt
+--   Max LTV must stay strictly below liquidationThreshold; revalidate at execution.
+module Desk.Types where
+
+import DA.Time
+
+-- | Desk parties for the bilateral MVP (one named lender, one named borrower).
+data DeskParties = DeskParties
+  with
+    creditOfficer : Party
+      -- ^ Desk credit officer — proposes terms; Desk signer (NOT Grofty-authorized).
+    lender : Party
+    borrower : Party
+    liquidator : Party
+      -- ^ Designated prefunded liquidator (Grofty-authorized role).
+  deriving (Eq, Show)
+
+-- | Asset tags for Desk holdings (CBTC collateral, USDCx credit).
+-- Package / interface / instrument IDs live in Desk.TokenPin + TOKEN_PIN.md.
+-- Do not claim MainNet until those pins are filled (PROJECT_PLAN §5.1).
+data AssetTag = CBTC | USDCx
+  deriving (Eq, Show)
+
+-- | Money amount as Decimal (Daml idiomatic for financial quantities).
+type Money = Decimal
+
+-- | Zero money constant.
+zeroMoney : Money
+zeroMoney = 0.0
+
+-- | Positive money guard used across templates.
+isPositiveMoney : Money -> Bool
+isPositiveMoney m = m > 0.0
+
+-- | Auth policy for money-moving choices.
+-- Production default: authRequired = True (fail closed if AuthorizationGranted missing/wrong).
+-- Demo/test may set False only when explicitly documenting auth-optional mode.
+data AuthPolicy = AuthPolicy
+  with
+    authRequired : Bool
+  deriving (Eq, Show)
+
+-- | Production default — mandatory Grofty-style auth on money-moving choices.
+productionAuth : AuthPolicy
+productionAuth = AuthPolicy with authRequired = True
+
+-- | Explicit auth-optional mode for tightly scoped demos/tests. Prefer granting auth instead.
+demoAuthOptional : AuthPolicy
+demoAuthOptional = AuthPolicy with authRequired = False
+
+-- | Fixed simple-interest bilateral loan terms (per-loan, not pool-wide).
+data LoanTerms = LoanTerms
+  with
+    principal : Money
+      -- ^ USDCx principal to disburse from lender's prefunded holding (no minting).
+    interestRate : Decimal
+      -- ^ Annual simple interest rate, e.g. 0.08 = 8%.
+    collateralAmount : Money
+      -- ^ Initial CBTC amount required into Desk custody.
+    collateralPrice : Money
+      -- ^ Desk mark (USDCx per 1 CBTC) used for HF / LTV checks. Oracle later.
+    liquidationThreshold : Decimal
+      -- ^ HF = CollateralValue * liquidationThreshold / Debt. Liquidatable when HF < 1.
+    maxLtv : Decimal
+      -- ^ Max LTV must stay strictly below liquidationThreshold (validated on create/update).
+    maturity : Time
+  deriving (Eq, Show)
+
+-- | Outstanding debt = principal + accrued simple interest.
+data Debt = Debt
+  with
+    principalOutstanding : Money
+    accruedInterest : Money
+  deriving (Eq, Show)
+
+-- | Debt = Principal + AccruedInterest
+debtTotal : Debt -> Money
+debtTotal d = d.principalOutstanding + d.accruedInterest
+
+-- | Mark-to-market collateral value in USDCx terms.
+collateralValue : Money -> Money -> Money
+collateralValue amount price = amount * price
+
+-- | Health factor: HF = CollateralValue × LiquidationThreshold / Debt
+-- Returns a large sentinel when debt is zero (fully repaid / not yet drawn).
+healthFactor : Money -> Money -> Decimal -> Debt -> Decimal
+healthFactor collAmount collPrice liqThreshold debt =
+  let d = debtTotal debt
+  in if d <= 0.0 then 999999.0
+     else (collateralValue collAmount collPrice * liqThreshold) / d
+
+-- | Loan-to-value: Debt / CollateralValue
+loanToValue : Money -> Money -> Debt -> Decimal
+loanToValue collAmount collPrice debt =
+  let cv = collateralValue collAmount collPrice
+  in if cv <= 0.0 then 999999.0
+     else debtTotal debt / cv
+
+-- | Position is liquidatable when HF < 1.
+isHfBreached : Money -> Money -> Decimal -> Debt -> Bool
+isHfBreached collAmount collPrice liqThreshold debt =
+  healthFactor collAmount collPrice liqThreshold debt < 1.0
+
+-- | Origination / top-up must keep LTV within agreed maxLtv.
+isWithinMaxLtv : Money -> Money -> Decimal -> Debt -> Bool
+isWithinMaxLtv collAmount collPrice maxLtv debt =
+  loanToValue collAmount collPrice debt <= maxLtv
+
+-- | Structural validation of bilateral terms (ensure clauses + choice asserts).
+validateTerms : LoanTerms -> Bool
+validateTerms t =
+  t.principal > 0.0
+    && t.interestRate >= 0.0
+    && t.collateralAmount > 0.0
+    && t.collateralPrice > 0.0
+    && t.liquidationThreshold > 0.0
+    && t.liquidationThreshold <= 1.0
+    && t.maxLtv > 0.0
+    && t.maxLtv < t.liquidationThreshold
+
+-- | Revalidate HF >= 1 and LTV <= maxLtv at a given mark / collateral amount.
+revalidateHealthy : LoanTerms -> Money -> Debt -> Bool
+revalidateHealthy terms collAmount debt =
+  healthFactor collAmount terms.collateralPrice terms.liquidationThreshold debt >= 1.0
+    && isWithinMaxLtv collAmount terms.collateralPrice terms.maxLtv debt
+
+-- | Seconds in a 365-day year for simple interest accrual (microseconds).
+secondsPerYearUs : Int
+secondsPerYearUs = 31536000 * 1000000
+
+-- | Accrue simple interest from lastAccrual to now: principal * rate * elapsed/year.
+-- Idempotent for a fixed (lastAccrual, now): elapsed <= 0 ⇒ 0.0 (no double count).
+accrueInterest : Money -> Decimal -> Time -> Time -> Money
+accrueInterest principal rate lastAccrual now =
+  let elapsedUs = convertRelTimeToMicroseconds (subTime now lastAccrual)
+  in if elapsedUs <= 0 then 0.0
+     else principal * rate * (intToDecimal elapsedUs / intToDecimal secondsPerYearUs)
+
+-- | Build Debt after accruing from lastAccrual to now.
+accruedDebt : Money -> Money -> Decimal -> Time -> Time -> Debt
+accruedDebt principalOutstanding accruedSoFar rate lastAccrual now =
+  let extra = accrueInterest principalOutstanding rate lastAccrual now
+  in Debt with
+       principalOutstanding = principalOutstanding
+       accruedInterest = accruedSoFar + extra
+
+-- | Optional helper: require Some, fail with message if None.
+requireSome : Text -> Optional a -> Update a
+requireSome msg opt = case opt of
+  Some x -> pure x
+  None -> abort msg

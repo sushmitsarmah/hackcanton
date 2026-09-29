@@ -1,0 +1,397 @@
+-- | Active bilateral loan: disburse prefunded lender USDCx (no minting), accrue simple interest,
+-- AddCollateral, full Repay, full LiquidateFast (consuming).
+-- Debt = Principal + AccruedInterest
+-- HF = CollateralValue × LiquidationThreshold / Debt
+-- Max LTV revalidated at Disburse / AddCollateral / Repay / LiquidateFast.
+--
+-- Auth: when authPolicy.authRequired (production default True), money-moving choices
+-- require AuthorizationGranted via requireAuthWhen (fail closed if missing/wrong).
+-- Grofty ≠ Desk: CreditOfficer never needs Grofty auth.
+--
+-- Custody exit:
+--   Repay → CollateralVault.ReleaseToBorrower (operational)
+--   LiquidateFast → SeizeToLiquidator (FAST PATH emergency; pre-authorized liquidator)
+--   Non-emergency / admin custody → CollateralVault.RequestGovernedCustodyRelease (GATED)
+-- Do not Transfer vault.lockedCbtc directly from this module.
+-- Vault release/seize purposes align with purposeRepay / purposeLiquidate so one grant covers
+-- both the Loan choice and the nested vault exit.
+--
+-- Path split (PROJECT_PLAN §5.3):
+--   FAST PATH: LiquidateFast — designated prefunded liquidator when HF < 1 or past maturity;
+--     pre-authorized at agreement setup; does NOT wait on DecMan threshold.
+--   GATED PATH: RequestGovernedCustodyRelease on vault — FUTURE(DecMan) evidence required;
+--     not executable without live DecMan (do not fake).
+-- Holdings: use HoldingCid (Desk.MockToken / TokenAdapter). LocalNet = MockHolding;
+-- swap DeskHolding in MockToken when CIP-0112 is pinned (TOKEN_PIN.md) — do not rewrite this module.
+module Desk.Loan where
+
+import Desk.Types
+import Desk.MockToken
+import Desk.CreditApplication
+import Desk.CollateralCustody
+import Desk.Auth
+
+-- | Bundle after collateral is locked, ready for USDCx disbursement from lender prefund.
+-- Consuming Disburse prevents double-disburse of the same ReadyToDisburse.
+template ReadyToDisburse
+  with
+    creditOfficer : Party
+    lender : Party
+    borrower : Party
+    liquidator : Party
+    terms : LoanTerms
+    authPolicy : AuthPolicy
+    vaultCid : ContractId CollateralVault
+    claimCid : ContractId BorrowerClaim
+  where
+    signatory creditOfficer, borrower
+    observer lender, liquidator
+    ensure validateTerms terms
+
+    -- | Lender + borrower authorize disbursement Transfer of prefunded USDCx (no minting).
+    choice Disburse : ContractId Loan
+      with
+        lenderUsdcx : HoldingCid
+        lenderAuthCid : Optional (ContractId AuthorizationGranted)
+        borrowerAuthCid : Optional (ContractId AuthorizationGranted)
+      controller lender, borrower, creditOfficer
+      do
+        requireAuthWhen authPolicy.authRequired lenderAuthCid lender LenderRole purposeDisburse
+        requireAuthWhen authPolicy.authRequired borrowerAuthCid borrower BorrowerRole purposeDisburse
+
+        vault <- fetch vaultCid
+        assertMsg "vault parties mismatch" $
+          vault.creditOfficer == creditOfficer
+            && vault.borrower == borrower
+            && vault.lender == lender
+        assertMsg "vault authPolicy match" $ vault.authPolicy == authPolicy
+        assertMsg "vault locked amount meets terms" $
+          vault.lockedAmount >= terms.collateralAmount
+
+        lockedHolding <- fetch vault.lockedCbtc
+        assertMsg "locked CBTC must be Desk-owned before disburse" $
+          lockedHolding.owner == creditOfficer
+        assertMsg "locked holding must be CBTC" $ lockedHolding.asset == CBTC
+        assertMsg "locked holding amount matches vault" $
+          lockedHolding.amount == vault.lockedAmount
+
+        claim <- fetch claimCid
+        assertMsg "claim amount must match vault before disburse" $
+          claim.claimAmount == vault.lockedAmount
+        assertMsg "claim parties match" $
+          claim.creditOfficer == creditOfficer && claim.borrower == borrower
+
+        usdc <- fetch lenderUsdcx
+        assertMsg "disburse asset must be USDCx" $ usdc.asset == USDCx
+        assertMsg "lender must own USDCx" $ usdc.owner == lender
+        assertMsg "USDCx must cover principal" $ usdc.amount >= terms.principal
+
+        borrowerPayCid <-
+          if usdc.amount == terms.principal then
+            exercise lenderUsdcx Transfer with newOwner = borrower
+          else do
+            (payCid, _changeCid) <- exercise lenderUsdcx Split with leaveAmount = terms.principal
+            exercise payCid Transfer with newOwner = borrower
+
+        now <- getTime
+        let debt0 = Debt with
+              principalOutstanding = terms.principal
+              accruedInterest = 0.0
+        assertMsg "HF must be >= 1 and LTV <= maxLtv at origination" $
+          revalidateHealthy terms vault.lockedAmount debt0
+
+        create Loan with
+          creditOfficer = creditOfficer
+          lender = lender
+          borrower = borrower
+          liquidator = liquidator
+          terms = terms
+          authPolicy = authPolicy
+          vaultCid = vaultCid
+          claimCid = claimCid
+          principalOutstanding = terms.principal
+          accruedInterest = 0.0
+          lastAccrual = now
+          borrowerUsdcxReceipt = Some borrowerPayCid
+
+-- | CreditOfficer prepares; Borrower + CreditOfficer lock CBTC into Desk custody.
+-- Consuming LockAndPrepare + archiving AcceptedTerms prevents double-lock of same agreement.
+template PrepareOrigination
+  with
+    creditOfficer : Party
+    lender : Party
+    borrower : Party
+    liquidator : Party
+    terms : LoanTerms
+    authPolicy : AuthPolicy
+    acceptedTermsCid : ContractId AcceptedTerms
+  where
+    signatory creditOfficer
+    observer lender, borrower, liquidator
+    ensure validateTerms terms
+
+    choice LockAndPrepare : ContractId ReadyToDisburse
+      with
+        borrowerCbtc : HoldingCid
+        borrowerAuthCid : Optional (ContractId AuthorizationGranted)
+      controller borrower, creditOfficer, lender
+      do
+        requireAuthWhen authPolicy.authRequired borrowerAuthCid borrower BorrowerRole purposeLock
+
+        credit <- fetch acceptedTermsCid
+        assertMsg "credit parties match" $
+          credit.creditOfficer == creditOfficer
+            && credit.lender == lender
+            && credit.borrower == borrower
+            && credit.liquidator == liquidator
+        assertMsg "terms match accepted" $ credit.terms == terms
+        assertMsg "authPolicy match accepted" $ credit.authPolicy == authPolicy
+
+        holding <- fetch borrowerCbtc
+        assertMsg "holding must be CBTC" $ holding.asset == CBTC
+        assertMsg "borrower must own CBTC" $ holding.owner == borrower
+        assertMsg "CBTC amount must meet terms" $
+          holding.amount >= terms.collateralAmount
+
+        -- Consume AcceptedTerms so the same agreement cannot be locked twice.
+        archive acceptedTermsCid
+
+        lockedCid <- exercise borrowerCbtc Transfer with newOwner = creditOfficer
+
+        vaultCid <- create CollateralVault with
+          creditOfficer = creditOfficer
+          lender = lender
+          borrower = borrower
+          liquidator = liquidator
+          terms = terms
+          authPolicy = authPolicy
+          lockedCbtc = lockedCid
+          lockedAmount = holding.amount
+
+        claimCid <- create BorrowerClaim with
+          creditOfficer = creditOfficer
+          borrower = borrower
+          lender = lender
+          vaultCid = vaultCid
+          claimAmount = holding.amount
+
+        create ReadyToDisburse with
+          creditOfficer = creditOfficer
+          lender = lender
+          borrower = borrower
+          liquidator = liquidator
+          terms = terms
+          authPolicy = authPolicy
+          vaultCid = vaultCid
+          claimCid = claimCid
+
+-- | Live loan / position (MVP: one named lender, one named borrower, one loan).
+template Loan
+  with
+    creditOfficer : Party
+    lender : Party
+    borrower : Party
+    liquidator : Party
+    terms : LoanTerms
+    authPolicy : AuthPolicy
+    vaultCid : ContractId CollateralVault
+    claimCid : ContractId BorrowerClaim
+    principalOutstanding : Money
+    accruedInterest : Money
+    lastAccrual : Time
+    borrowerUsdcxReceipt : Optional (HoldingCid)
+  where
+    signatory creditOfficer, lender, borrower
+    observer liquidator
+    ensure
+      principalOutstanding > 0.0
+        && accruedInterest >= 0.0
+        && validateTerms terms
+
+    nonconsuming choice PeekDebt : Debt
+      controller creditOfficer
+      do
+        now <- getTime
+        pure (accruedDebt principalOutstanding accruedInterest terms.interestRate lastAccrual now)
+
+    nonconsuming choice PeekHealth : (Decimal, Decimal)
+      controller creditOfficer
+      do
+        now <- getTime
+        vault <- fetch vaultCid
+        let debt = accruedDebt principalOutstanding accruedInterest terms.interestRate lastAccrual now
+            hf = healthFactor vault.lockedAmount terms.collateralPrice terms.liquidationThreshold debt
+            ltv = loanToValue vault.lockedAmount terms.collateralPrice debt
+        pure (hf, ltv)
+
+    -- | Accrue simple interest to now. Idempotent per time: if now == lastAccrual, extra = 0
+    -- and interest is unchanged (no double accrual at the same ledger time).
+    choice Accrue : ContractId Loan
+      controller creditOfficer
+      do
+        now <- getTime
+        let extra = accrueInterest principalOutstanding terms.interestRate lastAccrual now
+        create this with
+          accruedInterest = accruedInterest + extra
+          lastAccrual = now
+
+    choice UpdateMarkPrice : ContractId Loan
+      with
+        newPrice : Money
+      controller creditOfficer
+      do
+        assertMsg "mark price must be positive" $ newPrice > 0.0
+        create this with
+          terms = terms with collateralPrice = newPrice
+
+    -- | Top up CBTC collateral: merge into Desk vault, refresh claim, revalidate HF/LTV.
+    choice AddCollateral : ContractId Loan
+      with
+        extraCbtc : HoldingCid
+        borrowerAuthCid : Optional (ContractId AuthorizationGranted)
+      controller borrower, creditOfficer
+      do
+        requireAuthWhen authPolicy.authRequired borrowerAuthCid borrower BorrowerRole purposeAddCollateral
+        vault <- fetch vaultCid
+        extra <- fetch extraCbtc
+        assertMsg "extra must be CBTC" $ extra.asset == CBTC
+        assertMsg "borrower owns extra CBTC" $ extra.owner == borrower
+        assertMsg "extra amount > 0" $ extra.amount > 0.0
+
+        newPieceCid <- exercise extraCbtc Transfer with newOwner = creditOfficer
+        existing <- fetch vault.lockedCbtc
+        assertMsg "existing locked must be Desk-owned" $ existing.owner == creditOfficer
+        assertMsg "existing locked must be CBTC" $ existing.asset == CBTC
+        assertMsg "existing locked amount matches vault" $ existing.amount == vault.lockedAmount
+        mergedCid <- exercise vault.lockedCbtc Merge with otherCid = newPieceCid
+        let newAmount = vault.lockedAmount + extra.amount
+
+        archive vaultCid
+        archive claimCid
+
+        newVault <- create CollateralVault with
+          creditOfficer = creditOfficer
+          lender = lender
+          borrower = borrower
+          liquidator = liquidator
+          terms = terms
+          authPolicy = authPolicy
+          lockedCbtc = mergedCid
+          lockedAmount = newAmount
+        newClaim <- create BorrowerClaim with
+          creditOfficer = creditOfficer
+          borrower = borrower
+          lender = lender
+          vaultCid = newVault
+          claimAmount = newAmount
+
+        now <- getTime
+        let debt = accruedDebt principalOutstanding accruedInterest terms.interestRate lastAccrual now
+        assertMsg "HF/LTV must stay healthy after add collateral" $
+          revalidateHealthy terms newAmount debt
+
+        create this with
+          vaultCid = newVault
+          claimCid = newClaim
+          accruedInterest = debt.accruedInterest
+          lastAccrual = now
+
+    -- | Full repay (consuming). Borrower pays Debt; Desk releases CBTC via vault ReleaseToBorrower.
+    choice Repay : HoldingCid
+      with
+        repaymentUsdcx : HoldingCid
+        borrowerAuthCid : Optional (ContractId AuthorizationGranted)
+        lenderAuthCid : Optional (ContractId AuthorizationGranted)
+      controller borrower, creditOfficer, lender
+      do
+        requireAuthWhen authPolicy.authRequired borrowerAuthCid borrower BorrowerRole purposeRepay
+        requireAuthWhen authPolicy.authRequired lenderAuthCid lender LenderRole purposeRepay
+
+        now <- getTime
+        let debt = accruedDebt principalOutstanding accruedInterest terms.interestRate lastAccrual now
+            due = debtTotal debt
+
+        pay <- fetch repaymentUsdcx
+        assertMsg "repay asset must be USDCx" $ pay.asset == USDCx
+        assertMsg "borrower owns repayment" $ pay.owner == borrower
+        assertMsg "repayment must cover full debt" $ pay.amount >= due
+
+        vault <- fetch vaultCid
+        claim <- fetch claimCid
+        assertMsg "repay: claim amount matches vault" $ claim.claimAmount == vault.lockedAmount
+
+        locked <- fetch vault.lockedCbtc
+        assertMsg "Desk must own locked CBTC before release" $ locked.owner == creditOfficer
+        assertMsg "locked CBTC amount matches vault" $ locked.amount == vault.lockedAmount
+
+        if pay.amount == due then do
+          _ <- exercise repaymentUsdcx Transfer with newOwner = lender
+          pure ()
+        else do
+          (payCid, _changeCid) <- exercise repaymentUsdcx Split with leaveAmount = due
+          _ <- exercise payCid Transfer with newOwner = lender
+          pure ()
+
+        -- Exit custody ONLY via ReleaseToBorrower (purposeRepay aligns with Loan.Repay auth).
+        returned <- exercise vaultCid ReleaseToBorrower with
+          borrowerAuthCid = borrowerAuthCid
+        archive claimCid
+        pure returned
+
+    -- | FAST PATH — full liquidate (consuming) when HF < 1 or past maturity.
+    -- Designated prefunded liquidator, pre-authorized at agreement setup (Grofty LiquidatorRole).
+    -- Does NOT wait on DecMan threshold — emergency seize via SeizeToLiquidator only.
+    -- Gated / non-emergency custody → CollateralVault.RequestGovernedCustodyRelease (FUTURE DecMan).
+    choice LiquidateFast : HoldingCid
+      with
+        liquidatorAuthCid : Optional (ContractId AuthorizationGranted)
+      controller liquidator, creditOfficer
+      do
+        requireAuthWhen authPolicy.authRequired liquidatorAuthCid liquidator LiquidatorRole purposeLiquidate
+
+        now <- getTime
+        vault <- fetch vaultCid
+        let debt = accruedDebt principalOutstanding accruedInterest terms.interestRate lastAccrual now
+            hf = healthFactor vault.lockedAmount terms.collateralPrice terms.liquidationThreshold debt
+            pastMaturity = now >= terms.maturity
+        assertMsg "liquidate only if HF < 1 or past maturity" $ hf < 1.0 || pastMaturity
+
+        claim <- fetch claimCid
+        assertMsg "liquidate: claim amount matches vault" $ claim.claimAmount == vault.lockedAmount
+
+        locked <- fetch vault.lockedCbtc
+        assertMsg "Desk must own locked CBTC before seize" $ locked.owner == creditOfficer
+        assertMsg "locked CBTC amount matches vault" $ locked.amount == vault.lockedAmount
+
+        -- Fast-path emergency seize — no DecMan evidence required.
+        seized <- exercise vaultCid SeizeToLiquidator with
+          liquidatorAuthCid = liquidatorAuthCid
+        archive claimCid
+        pure seized
+
+    -- | Alias for LiquidateFast (Demo / UI / scripts). Same FAST PATH semantics.
+    choice Liquidate : HoldingCid
+      with
+        liquidatorAuthCid : Optional (ContractId AuthorizationGranted)
+      controller liquidator, creditOfficer
+      do
+        requireAuthWhen authPolicy.authRequired liquidatorAuthCid liquidator LiquidatorRole purposeLiquidate
+
+        now <- getTime
+        vault <- fetch vaultCid
+        let debt = accruedDebt principalOutstanding accruedInterest terms.interestRate lastAccrual now
+            hf = healthFactor vault.lockedAmount terms.collateralPrice terms.liquidationThreshold debt
+            pastMaturity = now >= terms.maturity
+        assertMsg "liquidate only if HF < 1 or past maturity" $ hf < 1.0 || pastMaturity
+
+        claim <- fetch claimCid
+        assertMsg "liquidate: claim amount matches vault" $ claim.claimAmount == vault.lockedAmount
+
+        locked <- fetch vault.lockedCbtc
+        assertMsg "Desk must own locked CBTC before seize" $ locked.owner == creditOfficer
+        assertMsg "locked CBTC amount matches vault" $ locked.amount == vault.lockedAmount
+
+        seized <- exercise vaultCid SeizeToLiquidator with
+          liquidatorAuthCid = liquidatorAuthCid
+        archive claimCid
+        pure seized

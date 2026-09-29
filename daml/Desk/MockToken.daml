@@ -1,0 +1,129 @@
+-- | LocalNet CIP-0112-style Holding mocks for CBTC and USDCx.
+--
+-- Default DeskHolding behind Desk.TokenAdapter shapes. Loan / custody use
+-- HoldingCid so a pinned CIP-0112 Holding can replace MockHolding without
+-- rewriting bilateral workflows (see TOKEN_PIN.md + Desk.TokenAdapter).
+--
+-- FUTURE(DecMan): topology registration of real Holding implementations /
+-- instrument admins; Desk custody party must be a registered holder for CBTC.
+module Desk.MockToken where
+
+import Desk.Types
+import Desk.TokenPin
+import Desk.TokenAdapter
+
+-- | LocalNet default holding template. Swap point for CIP-0112: change this
+-- alias (and transferHolding / mint path) once real DARs are pinned.
+type DeskHolding = MockHolding
+
+-- | ContractId alias used by Loan / CollateralCustody / scripts.
+-- Keep call sites on HoldingCid so MainNet swap is a type-level change here.
+type HoldingCid = ContractId DeskHolding
+
+-- | Fungible mock holding used for both CBTC and USDCx in LocalNet demos.
+-- Owner-only signatory keeps Transfer/Split workable; admin is provenance observer.
+-- Invariant: amount > 0 (empty holdings are archived, not kept at zero).
+template MockHolding
+  with
+    owner : Party
+    instrumentAdmin : Party
+    asset : AssetTag
+    amount : Money
+  where
+    signatory owner
+    observer instrumentAdmin
+    ensure amount > 0.0
+
+    interface instance Transferable for MockHolding where
+      view = holdingViewOf owner instrumentAdmin asset amount
+
+    -- | Bilateral transfer: current owner and newOwner must both authorize.
+    -- LocalNet settlement primitive for lock / disburse / repay / liquidate.
+    -- CIP-0112 MainNet maps this to TransferInstructionV2 (see TokenAdapter).
+    choice Transfer : HoldingCid
+      with
+        newOwner : Party
+      controller owner, newOwner
+      do
+        create this with owner = newOwner
+
+    choice Split : (HoldingCid, HoldingCid)
+      with
+        leaveAmount : Money
+      controller owner
+      do
+        assertMsg "split amount must be positive and < total" $
+          leaveAmount > 0.0 && leaveAmount < amount
+        a <- create this with amount = leaveAmount
+        b <- create this with amount = amount - leaveAmount
+        pure (a, b)
+
+    choice Merge : HoldingCid
+      with
+        otherCid : HoldingCid
+      controller owner
+      do
+        other <- fetch otherCid
+        assertMsg "merge same owner" $ other.owner == owner
+        assertMsg "merge same admin" $ other.instrumentAdmin == instrumentAdmin
+        assertMsg "merge same asset" $ other.asset == asset
+        archive otherCid
+        create this with amount = amount + other.amount
+
+    -- | Admin burn (e.g. test teardown). Not used by the loan lifecycle.
+    choice Burn : ()
+      controller owner, instrumentAdmin
+      do
+        pure ()
+
+    -- | CIP-0112-style GetView: nonconsuming HoldingView read for the owner.
+    nonconsuming choice GetView : HoldingView
+      controller owner
+      do
+        pure (adapterGetView (toInterface this))
+
+    nonconsuming choice AssertOwner : Party
+      controller owner
+      do
+        pure owner
+
+-- | Issuer posts mint; recipient accepts (both authorize the holding create).
+-- Demo uses this to seed CBTC (borrower) and prefunded USDCx (lender / liquidator).
+-- Loan disbursement itself NEVER mints USDCx — it transfers from the named lender.
+template MintRequest
+  with
+    instrumentAdmin : Party
+    recipient : Party
+    asset : AssetTag
+    amount : Money
+  where
+    signatory instrumentAdmin
+    observer recipient
+    ensure amount > 0.0
+
+    choice AcceptMint : HoldingCid
+      controller recipient
+      do
+        create MockHolding with
+          owner = recipient
+          instrumentAdmin = instrumentAdmin
+          asset = asset
+          amount = amount
+
+    choice CancelMint : ()
+      controller instrumentAdmin
+      do
+        pure ()
+
+-- | Transfer helper kept next to MockHolding so Loan/Custody can call one name
+-- after a CIP-0112 swap (replace body to drive TransferInstruction).
+transferHolding : HoldingCid -> Party -> Update HoldingCid
+transferHolding cid newOwner = exercise cid Transfer with newOwner = newOwner
+
+-- | GetView helper — exercises MockHolding.GetView (CIP-0112 expectation).
+getHoldingViewCmd : HoldingCid -> Update HoldingView
+getHoldingViewCmd cid = exercise cid GetView
+
+-- | Re-export active pin lookup for scripts / UI diagnostics.
+mockPinFor : AssetTag -> AssetPin
+mockPinFor = assetPinOf activeTokenPins

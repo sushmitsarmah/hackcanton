@@ -1,0 +1,91 @@
+-- | CIP-0112-style token adapter layer for the Desk.
+--
+-- Goal: loan / custody logic programs against HoldingView + Transferable /
+-- HoldingCid shapes so LocalNet MockHolding can later be swapped for pinned
+-- CIP-0112 Holding / TransferInstruction implementations without rewriting
+-- bilateral loan workflows.
+--
+-- CIP-0112 HoldingV2 expectations (documented; LocalNet simplified):
+--   GetView  — nonconsuming read of HoldingView (account / instrument / amount).
+--   Transfer — on MainNet this is typically TransferInstructionV2 factory flow,
+--              NOT a single bilateral choice on Holding. LocalNet MockHolding
+--              exposes a bilateral Transfer (owner + newOwner) as the settlement
+--              primitive used by lock / disburse / repay / liquidate.
+--
+-- Swap path (see TOKEN_PIN.md):
+--   1. Fill Desk.TokenPin DevNet/MainNet AssetPin fields with real IDs.
+--   2. Depend on the pinned DAR; implement Transferable for the real Holding.
+--   3. Change HoldingCid / transferHolding in Desk.MockToken (or a thin
+--      Desk.Holdings module) to the real template — Loan/Custody keep using
+--      HoldingCid + Transfer / GetView / Split / Merge names.
+module Desk.TokenAdapter where
+
+import Desk.Types
+import Desk.TokenPin
+
+-- | Local Holding-like view (mirrors CIP-0112 HoldingV2 shape at Desk level).
+-- CIP-0112 uses Account + InstrumentId + lock + meta; we keep owner /
+-- instrumentAdmin flat for LocalNet mocks and carry pin placeholders so the
+-- UI / scripts can show what will be pinned.
+data HoldingView = HoldingView
+  with
+    owner : Party
+    instrumentAdmin : Party
+    asset : AssetTag
+    amount : Money
+    packageIdPlaceholder : Text
+    interfaceIdPlaceholder : Text
+    instrumentIdPlaceholder : Text
+  deriving (Eq, Show)
+
+-- | Build a HoldingView from parties + asset using the active TokenPin set.
+holdingViewOf : Party -> Party -> AssetTag -> Money -> HoldingView
+holdingViewOf owner instrumentAdmin asset amount =
+  let (pkg, iface, instr) = cipPinTriple asset
+  in HoldingView with
+       owner = owner
+       instrumentAdmin = instrumentAdmin
+       asset = asset
+       amount = amount
+       packageIdPlaceholder = pkg
+       interfaceIdPlaceholder = iface
+       instrumentIdPlaceholder = instr
+
+-- | Transferable / Holding stand-in interface (CIP-0112 Holding backdrop).
+--
+-- Expected choices on implementing templates (LocalNet MockHolding):
+--   Transfer  : ContractId <Holding>   — bilateral owner+newOwner settle
+--   GetView   : HoldingView            — nonconsuming; mirrors CIP GetView
+--   Split     : (Cid, Cid)             — fungible leaveAmount / remainder
+--   Merge     : ContractId <Holding>   — same owner/admin/asset
+--
+-- When swapping to CIP-0112, map:
+--   GetView  -> Holding interface GetView / view @Holding
+--   Transfer -> TransferInstructionV2 create + accept (network-specific)
+--   Split/Merge -> Fungible holding interface choices where available
+interface Transferable where
+  viewtype HoldingView
+
+-- | Read HoldingView from a Transferable payload (CIP-0112 GetView expectation).
+-- Prefer MockHolding.GetView when you need a choice exercise on-ledger; this
+-- helper is for in-Update use after fetch + toInterface.
+adapterGetView : Transferable -> HoldingView
+adapterGetView t = view t
+
+-- | Assert view fields match expected owner / asset / minimum amount.
+-- Used by custody / loan paths that already fetch the concrete holding;
+-- kept here so pin-aware checks stay next to the adapter docs.
+assertHoldingShape : Text -> HoldingView -> Party -> AssetTag -> Money -> Update ()
+assertHoldingShape ctx v expectedOwner expectedAsset minAmount = do
+  assertMsg (ctx <> ": owner mismatch") $ v.owner == expectedOwner
+  assertMsg (ctx <> ": asset mismatch") $ v.asset == expectedAsset
+  assertMsg (ctx <> ": amount too low") $ v.amount >= minAmount
+  pure ()
+
+-- | Active network label for diagnostics / UI.
+adapterNetwork : TokenNetwork
+adapterNetwork = activeTokenPins.network
+
+-- | Pin set the adapter is currently backed by (LocalNet until TOKEN_PIN.md filled).
+adapterPins : TokenPinSet
+adapterPins = activeTokenPins

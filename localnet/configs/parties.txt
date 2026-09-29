@@ -1,0 +1,9 @@
+# Party display names allocated on LocalNet / Canton sandbox.
+# Required by Point 5 + Demo.daml companions.
+Desk
+CreditOfficer
+Lender
+Borrower
+Liquidator
+MockIssuer
+GroftyAuth

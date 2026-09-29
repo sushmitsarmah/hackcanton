@@ -1,0 +1,9 @@
+# Example list-parties output after allocate-parties.sh on Canton sandbox
+# (namespace suffix changes every sandbox restart)
+PartyDetails {party = 'Borrower::1220…', isLocal = True}
+PartyDetails {party = 'CreditOfficer::1220…', isLocal = True}
+PartyDetails {party = 'Desk::1220…', isLocal = True}
+PartyDetails {party = 'GroftyAuth::1220…', isLocal = True}
+PartyDetails {party = 'Lender::1220…', isLocal = True}
+PartyDetails {party = 'Liquidator::1220…', isLocal = True}
+PartyDetails {party = 'MockIssuer::1220…', isLocal = True}

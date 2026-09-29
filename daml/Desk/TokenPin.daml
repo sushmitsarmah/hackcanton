@@ -1,0 +1,145 @@
+-- | CIP-0112 / Token Standard V2 pin placeholders for CBTC and USDCx.
+--
+-- Desk loan/custody logic must NOT hard-code network package IDs. Fill real
+-- DevNet / MainNet values only via TOKEN_PIN.md — never invent MainNet hashes.
+-- LocalNet default continues to use MockHolding behind Desk.TokenAdapter shapes.
+module Desk.TokenPin where
+
+import DA.Text qualified as T
+import Desk.Types (AssetTag(..))
+
+-- | Which Canton network a pin set targets.
+data TokenNetwork = LocalNet | DevNet | MainNet
+  deriving (Eq, Show)
+
+-- | Package / interface / instrument identifiers for one CIP-0112-style asset.
+-- All Text fields are opaque IDs as published by the registry / CIP pin docs.
+data AssetPin = AssetPin
+  with
+    asset : AssetTag
+    packageId : Text
+      -- ^ DAR / package id hosting the Holding (or registry) implementation.
+    holdingInterfaceId : Text
+      -- ^ Qualified Holding interface id (CIP-0112 HoldingV2-style).
+    transferableInterfaceId : Text
+      -- ^ Transfer / Transferable / TransferInstruction surface id (network-specific).
+    instrumentId : Text
+      -- ^ Instrument id unique per instrument admin (CIP-0112 InstrumentId.id).
+    instrumentAdminHint : Text
+      -- ^ Human hint for registry / instrument admin party (not a Party until onboarded).
+  deriving (Eq, Show)
+
+-- | Full Desk pin set for both collateral and disbursement assets on one network.
+data TokenPinSet = TokenPinSet
+  with
+    network : TokenNetwork
+    cbtc : AssetPin
+    usdcx : AssetPin
+  deriving (Eq, Show)
+
+-- ---------------------------------------------------------------------------
+-- Placeholder literals — MUST contain "PLACEHOLDER". Do not replace with
+-- guessed MainNet package hashes. See TOKEN_PIN.md.
+-- ---------------------------------------------------------------------------
+
+holdingInterfacePlaceholder : Text
+holdingInterfacePlaceholder = "#CantonTokenStandard:Holding:Holding"
+
+transferableInterfacePlaceholder : Text
+transferableInterfacePlaceholder = "#CantonTokenStandard:Transfer:Transferable"
+
+cbtcPackagePlaceholder : Text
+cbtcPackagePlaceholder = "pkg:cbtc-cip0112-PLACEHOLDER"
+
+usdcxPackagePlaceholder : Text
+usdcxPackagePlaceholder = "pkg:usdcx-cip0112-PLACEHOLDER"
+
+cbtcInstrumentPlaceholder : Text
+cbtcInstrumentPlaceholder = "CBTC-v1-PLACEHOLDER"
+
+usdcxInstrumentPlaceholder : Text
+usdcxInstrumentPlaceholder = "USDCx-v1-PLACEHOLDER"
+
+-- | LocalNet pin set used by MockHolding views today.
+localNetPins : TokenPinSet
+localNetPins = TokenPinSet with
+  network = LocalNet
+  cbtc = AssetPin with
+    asset = CBTC
+    packageId = cbtcPackagePlaceholder
+    holdingInterfaceId = holdingInterfacePlaceholder
+    transferableInterfaceId = transferableInterfacePlaceholder
+    instrumentId = cbtcInstrumentPlaceholder
+    instrumentAdminHint = "MockIssuer-LocalNet"
+  usdcx = AssetPin with
+    asset = USDCx
+    packageId = usdcxPackagePlaceholder
+    holdingInterfaceId = holdingInterfacePlaceholder
+    transferableInterfaceId = transferableInterfacePlaceholder
+    instrumentId = usdcxInstrumentPlaceholder
+    instrumentAdminHint = "MockIssuer-LocalNet"
+
+-- | DevNet pin set — still PLACEHOLDER until TOKEN_PIN.md checklist is filled.
+devNetPins : TokenPinSet
+devNetPins = TokenPinSet with
+  network = DevNet
+  cbtc = AssetPin with
+    asset = CBTC
+    packageId = "pkg:cbtc-cip0112-DevNet-PLACEHOLDER"
+    holdingInterfaceId = holdingInterfacePlaceholder
+    transferableInterfaceId = transferableInterfacePlaceholder
+    instrumentId = "CBTC-DevNet-PLACEHOLDER"
+    instrumentAdminHint = "CBTC-registry-DevNet-PLACEHOLDER"
+  usdcx = AssetPin with
+    asset = USDCx
+    packageId = "pkg:usdcx-cip0112-DevNet-PLACEHOLDER"
+    holdingInterfaceId = holdingInterfacePlaceholder
+    transferableInterfaceId = transferableInterfacePlaceholder
+    instrumentId = "USDCx-DevNet-PLACEHOLDER"
+    instrumentAdminHint = "USDCx-registry-DevNet-PLACEHOLDER"
+
+-- | MainNet pin set — intentionally PLACEHOLDER. Filling real IDs is a manual
+-- gate (TOKEN_PIN.md). Do not invent hashes to look "pinned."
+mainNetPins : TokenPinSet
+mainNetPins = TokenPinSet with
+  network = MainNet
+  cbtc = AssetPin with
+    asset = CBTC
+    packageId = "pkg:cbtc-cip0112-MainNet-PLACEHOLDER"
+    holdingInterfaceId = holdingInterfacePlaceholder
+    transferableInterfaceId = transferableInterfacePlaceholder
+    instrumentId = "CBTC-MainNet-PLACEHOLDER"
+    instrumentAdminHint = "CBTC-registry-MainNet-PLACEHOLDER"
+  usdcx = AssetPin with
+    asset = USDCx
+    packageId = "pkg:usdcx-cip0112-MainNet-PLACEHOLDER"
+    holdingInterfaceId = holdingInterfacePlaceholder
+    transferableInterfaceId = transferableInterfacePlaceholder
+    instrumentId = "USDCx-MainNet-PLACEHOLDER"
+    instrumentAdminHint = "USDCx-registry-MainNet-PLACEHOLDER"
+
+-- | Active pin set for this build. LocalNet until TOKEN_PIN.md MainNet/DevNet done.
+activeTokenPins : TokenPinSet
+activeTokenPins = localNetPins
+
+-- | Resolve AssetPin for an AssetTag from a pin set.
+assetPinOf : TokenPinSet -> AssetTag -> AssetPin
+assetPinOf pins CBTC = pins.cbtc
+assetPinOf pins USDCx = pins.usdcx
+
+-- | Convenience: pin triple (package, holding interface, instrument) for an asset.
+cipPinTriple : AssetTag -> (Text, Text, Text)
+cipPinTriple tag =
+  let p = assetPinOf activeTokenPins tag
+  in (p.packageId, p.holdingInterfaceId, p.instrumentId)
+
+-- | Guard used in tests: id still looks unpinned (contains PLACEHOLDER).
+isUnpinnedPlaceholder : Text -> Bool
+isUnpinnedPlaceholder t = T.isInfixOf "PLACEHOLDER" t
+
+allPinsStillPlaceholder : TokenPinSet -> Bool
+allPinsStillPlaceholder pins =
+  isUnpinnedPlaceholder pins.cbtc.packageId
+    && isUnpinnedPlaceholder pins.cbtc.instrumentId
+    && isUnpinnedPlaceholder pins.usdcx.packageId
+    && isUnpinnedPlaceholder pins.usdcx.instrumentId

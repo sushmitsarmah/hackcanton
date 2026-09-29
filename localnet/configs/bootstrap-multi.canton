@@ -1,0 +1,54 @@
+// Canton console bootstrap for Path B (SDK 3.4.9).
+// Invoked via: canton daemon -c multi-participant.conf --bootstrap bootstrap-multi.canton
+//
+// Steps: bootstrap synchronizer → connect both participants → enable demo parties
+// on the intended hosts → print PATH_B_BOOTSTRAP_READY for start-multi.sh.
+//
+// Note: participant.health.ping / maybe_ping are unreliable or disabled on the
+// bundled OSS canton.jar (testing commands). Connectivity is proven by
+// synchronizers.active + Ledger API listen + list-parties (proof-multi.sh).
+
+println("== Path B bootstrap: synchronizer ==")
+bootstrap.synchronizer(
+  synchronizerName = "mysynchronizer",
+  sequencers = Seq(sequencer1),
+  mediators = Seq(mediator1),
+  synchronizerOwners = Seq(sequencer1),
+  synchronizerThreshold = 1,
+  staticSynchronizerParameters = StaticSynchronizerParameters.defaultsWithoutKMS(ProtocolVersion.latest),
+)
+
+println("== Path B bootstrap: connect participants ==")
+participant1.synchronizers.connect_local(sequencer1, "mysynchronizer")
+participant2.synchronizers.connect_local(sequencer1, "mysynchronizer")
+
+utils.retry_until_true(timeout = 120.seconds) {
+  participant1.synchronizers.active("mysynchronizer") &&
+  participant2.synchronizers.active("mysynchronizer")
+}
+
+println("== Path B bootstrap: connected synchronizers ==")
+println(participant1.synchronizers.list_connected())
+println(participant2.synchronizers.list_connected())
+
+println("== Path B bootstrap: enable parties ==")
+// Intended hosting split for privacy sketches (NOT used by Desk.Demo as-is):
+//   p1: Desk, CreditOfficer, MockIssuer
+//   p2: Lender, Borrower, Liquidator, GroftyAuth
+val desk = participant1.parties.enable("Desk")
+val creditOfficer = participant1.parties.enable("CreditOfficer")
+val mockIssuer = participant1.parties.enable("MockIssuer")
+val lender = participant2.parties.enable("Lender")
+val borrower = participant2.parties.enable("Borrower")
+val liquidator = participant2.parties.enable("Liquidator")
+val groftyAuth = participant2.parties.enable("GroftyAuth")
+
+println(s"p1 Desk=$desk")
+println(s"p1 CreditOfficer=$creditOfficer")
+println(s"p1 MockIssuer=$mockIssuer")
+println(s"p2 Lender=$lender")
+println(s"p2 Borrower=$borrower")
+println(s"p2 Liquidator=$liquidator")
+println(s"p2 GroftyAuth=$groftyAuth")
+
+println("PATH_B_BOOTSTRAP_READY")

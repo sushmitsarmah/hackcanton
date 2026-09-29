@@ -1,0 +1,146 @@
+-- | Credit-officer style bilateral origination:
+-- CreditOfficer proposes → Lender accepts → Borrower accepts → AcceptedTerms ready to fund.
+-- Reject / cancel paths archive the proposal without creating AcceptedTerms.
+-- authPolicy (default productionAuth) is carried into custody/loan; money-moving choices
+-- enforce requireAuthWhen. Accept paths validate attached evidence when Some, but do not
+-- fail closed on None (auth is enforced at Lock / Disburse / Repay / Liquidate).
+-- FUTURE(DecMan): app-governance approval of product parameters / party onboarding
+--   (control #3 — test hook: require appGovernanceEvidence when wired).
+module Desk.CreditApplication where
+
+import Desk.Types
+import Desk.Auth
+
+-- | Desk CreditOfficer proposes bilateral loan terms.
+template LoanProposal
+  with
+    creditOfficer : Party
+    lender : Party
+    borrower : Party
+    liquidator : Party
+    terms : LoanTerms
+    authPolicy : AuthPolicy
+      -- ^ Production: productionAuth. Demo-only optional: demoAuthOptional (documented).
+    lenderAuthCid : Optional (ContractId AuthorizationGranted)
+    borrowerAuthCid : Optional (ContractId AuthorizationGranted)
+    liquidatorAuthCid : Optional (ContractId AuthorizationGranted)
+  where
+    signatory creditOfficer
+    observer lender, borrower, liquidator
+    ensure validateTerms terms
+
+    -- | Lender accepts proposed terms → awaiting borrower.
+    -- If lenderAuthCid = Some, validate subject/role (purpose checked at money-move time).
+    choice LenderAccept : ContractId LenderAccepted
+      controller lender
+      do
+        case lenderAuthCid of
+          None -> pure ()
+          Some cid -> do
+            _ <- requireGrantedAuth cid lender LenderRole
+            pure ()
+        create LenderAccepted with
+          creditOfficer = creditOfficer
+          lender = lender
+          borrower = borrower
+          liquidator = liquidator
+          terms = terms
+          authPolicy = authPolicy
+          lenderAuthCid = lenderAuthCid
+          borrowerAuthCid = borrowerAuthCid
+          liquidatorAuthCid = liquidatorAuthCid
+
+    choice RejectByLender : ()
+      controller lender
+      do
+        pure ()
+
+    choice CancelProposal : ()
+      controller creditOfficer
+      do
+        pure ()
+
+    choice WithdrawProposal : ()
+      controller creditOfficer
+      do
+        pure ()
+
+-- | Lender has accepted; awaiting borrower accept.
+template LenderAccepted
+  with
+    creditOfficer : Party
+    lender : Party
+    borrower : Party
+    liquidator : Party
+    terms : LoanTerms
+    authPolicy : AuthPolicy
+    lenderAuthCid : Optional (ContractId AuthorizationGranted)
+    borrowerAuthCid : Optional (ContractId AuthorizationGranted)
+    liquidatorAuthCid : Optional (ContractId AuthorizationGranted)
+  where
+    signatory creditOfficer, lender
+    observer borrower, liquidator
+    ensure validateTerms terms
+
+    -- | Borrower accepts → AcceptedTerms (fully bilateral).
+    choice BorrowerAccept : ContractId AcceptedTerms
+      controller borrower
+      do
+        case borrowerAuthCid of
+          None -> pure ()
+          Some cid -> do
+            _ <- requireGrantedAuth cid borrower BorrowerRole
+            pure ()
+        create AcceptedTerms with
+          creditOfficer = creditOfficer
+          lender = lender
+          borrower = borrower
+          liquidator = liquidator
+          terms = terms
+          authPolicy = authPolicy
+          lenderAuthCid = lenderAuthCid
+          borrowerAuthCid = borrowerAuthCid
+          liquidatorAuthCid = liquidatorAuthCid
+
+    choice RejectByBorrower : ()
+      controller borrower
+      do
+        pure ()
+
+    choice CancelByCreditOfficer : ()
+      controller creditOfficer
+      do
+        pure ()
+
+-- | Fully accepted bilateral credit terms — input to collateral lock + disbursement.
+-- Consumed (archived) on LockAndPrepare to prevent double-lock of the same agreement.
+template AcceptedTerms
+  with
+    creditOfficer : Party
+    lender : Party
+    borrower : Party
+    liquidator : Party
+    terms : LoanTerms
+    authPolicy : AuthPolicy
+    lenderAuthCid : Optional (ContractId AuthorizationGranted)
+    borrowerAuthCid : Optional (ContractId AuthorizationGranted)
+    liquidatorAuthCid : Optional (ContractId AuthorizationGranted)
+  where
+    signatory creditOfficer, lender, borrower
+    observer liquidator
+    ensure validateTerms terms
+
+    nonconsuming choice RevealTerms : LoanTerms
+      controller creditOfficer
+      do
+        pure terms
+
+    nonconsuming choice RevealAuthPolicy : AuthPolicy
+      controller creditOfficer
+      do
+        pure authPolicy
+
+    choice CancelAcceptedTerms : ()
+      controller creditOfficer, lender, borrower
+      do
+        pure ()

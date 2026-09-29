@@ -1,0 +1,12 @@
+# Path C is NOT defined here.
+# Official Canton Network LocalNet lives in digital-asset/cn-quickstart (heavy images + Splice).
+#
+# Helper (clone + print steps; does not pull images by default):
+#   ./localnet/scripts/path-c-setup.sh
+#
+# Manual:
+#   git clone https://github.com/digital-asset/cn-quickstart
+#   cd cn-quickstart && make install && make start
+#
+# See LOCALNET.md Path C. Do not `docker compose up` this stub — empty on purpose.
+services: {}

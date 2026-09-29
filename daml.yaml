@@ -1,0 +1,15 @@
+# CBTC Collateral Desk — HackCanton S3 Financial Applications track
+# Canton-only bilateral lending desk (NOT a money-market pool).
+sdk-version: 3.4.9
+name: cbtc-collateral-desk
+source: daml
+version: 0.1.0
+init-script: Desk.Demo:runHappyPath
+dependencies:
+  - daml-prim
+  - daml-stdlib
+  - daml-script
+build-options:
+  - --ghc-option=-Wwarn
+  - -Wno-upgrade-interfaces
+  - -Wno-template-interface-depends-on-daml-script

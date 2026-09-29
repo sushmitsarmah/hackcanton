@@ -1,0 +1,194 @@
+-- | Async authorization hooks for Grofty-style external auth.
+-- Grofty authorizes borrower / lender / liquidator ONLY — NOT the Desk/CreditOfficer signer.
+--
+-- Flow:
+--   1. CreditOfficer creates RequestAuthorization (or AuthorizationProposal).
+--   2. Authority (Grofty stand-in) grants → AuthorizationGranted evidence.
+--   3. Money-moving choices call requireAuthWhen (fail closed when authRequired).
+--
+-- FUTURE(DecMan) — three separate controls (test hooks; not implemented):
+--   1. Topology ownership evidence on AuthorizationGranted / party onboarding
+--   2. Transaction confirmation / hosting threshold before settlement
+--      Fast path: Loan.LiquidateFast (pre-authorized liquidator) skips threshold wait.
+--      Gated path: CollateralVault.RequestGovernedCustodyRelease requires evidence.
+--   3. App governance (e.g. 2-of-3) on product params / party onboarding
+-- Test hooks: attach optional evidence Text fields later; assert presence when policy requires.
+-- Evidence checklist / client scaffolding: integrations/bitsafe/BITSAFE.md + DecManEvidence.md
+module Desk.Auth where
+
+-- | Role that Grofty may authorize (Desk signer explicitly excluded).
+data AuthRole = BorrowerRole | LenderRole | LiquidatorRole
+  deriving (Eq, Show)
+
+-- | Canonical purposes for money-moving choices (must match AuthorizationGranted.purpose).
+purposeLock : Text
+purposeLock = "desk.lock-collateral"
+
+purposeDisburse : Text
+purposeDisburse = "desk.disburse"
+
+purposeAddCollateral : Text
+purposeAddCollateral = "desk.add-collateral"
+
+purposeRepay : Text
+purposeRepay = "desk.repay"
+
+purposeLiquidate : Text
+purposeLiquidate = "desk.liquidate"
+
+-- | Aliased to purposeRepay / purposeLiquidate so Loan.Repay/Liquidate and vault
+-- Release/Seize share one AuthorizationGranted purpose per exit path.
+purposeRelease : Text
+purposeRelease = "desk.repay"
+
+purposeSeize : Text
+purposeSeize = "desk.liquidate"
+
+-- | Gated (non-emergency) custody release / admin seize — FUTURE(DecMan) only.
+-- Not used by LiquidateFast. RequestGovernedCustodyRelease documents this purpose.
+purposeGovernedCustodyRelease : Text
+purposeGovernedCustodyRelease = "desk.governed-custody-release"
+
+-- | Outbound authorization request (async). Observer = subject awaiting grant.
+template RequestAuthorization
+  with
+    requester : Party
+      -- ^ Typically CreditOfficer initiating onboarding.
+    subject : Party
+      -- ^ Party who needs Grofty authorization (borrower/lender/liquidator).
+    role : AuthRole
+    purpose : Text
+    -- FUTURE(DecMan): correlation id for external auth service / topology proposal.
+  where
+    signatory requester
+    observer subject
+
+    choice CancelAuthorizationRequest : ()
+      controller requester
+      do
+        pure ()
+
+    -- | Subject acknowledges the request; still needs authority Grant via AuthorizationProposal
+    -- or a direct AuthorizationGranted create by the authority party.
+    nonconsuming choice AcknowledgeRequest : ()
+      controller subject
+      do
+        pure ()
+
+-- | Evidence that Grofty (or a mock auth oracle) granted a role + purpose.
+-- In production this is attested asynchronously; LocalNet demos use AuthorizationProposal.Grant.
+template AuthorizationGranted
+  with
+    authority : Party
+      -- ^ Stand-in for Grofty / auth oracle party in demos.
+    subject : Party
+    role : AuthRole
+    purpose : Text
+    -- FUTURE(DecMan): attach DecMan evidence payload / tx confirmation hash.
+    -- Test hook fields (unused until DecMan wired):
+    --   topologyEvidence : Optional Text
+    --   txConfirmationEvidence : Optional Text
+    --   appGovernanceEvidence : Optional Text
+  where
+    signatory authority
+    observer subject
+    ensure purpose /= ""
+
+    nonconsuming choice AssertRole : AuthRole
+      controller subject
+      do
+        pure role
+
+    nonconsuming choice AssertSubject : Party
+      controller subject
+      do
+        pure subject
+
+    nonconsuming choice AssertPurpose : Text
+      controller subject
+      do
+        pure purpose
+
+    -- | Revoke evidence (authority only). Does not cascade into live Loan contracts —
+    -- callers must re-check AuthorizationGranted at choice time if they require live auth.
+    choice Revoke : ()
+      controller authority
+      do
+        pure ()
+
+-- | Helper proposal: requester asks authority to grant a role to subject.
+template AuthorizationProposal
+  with
+    requester : Party
+    authority : Party
+    subject : Party
+    role : AuthRole
+    purpose : Text
+  where
+    signatory requester
+    observer authority, subject
+    ensure purpose /= ""
+
+    choice Grant : ContractId AuthorizationGranted
+      controller authority
+      do
+        -- Desk/CreditOfficer is never a Grofty-authorized *role* via this stub;
+        -- requester may be CreditOfficer, but subject.role is always borrower/lender/liquidator.
+        create AuthorizationGranted with
+          authority = authority
+          subject = subject
+          role = role
+          purpose = purpose
+
+    choice RejectAuth : ()
+      controller authority
+      do
+        pure ()
+
+-- | Pure helper: does this AuthorizationGranted match the expected subject + role?
+matchesAuth : AuthorizationGranted -> Party -> AuthRole -> Bool
+matchesAuth g expectedSubject expectedRole =
+  g.subject == expectedSubject && g.role == expectedRole
+
+-- | Pure helper: subject + role + purpose.
+matchesAuthWithPurpose : AuthorizationGranted -> Party -> AuthRole -> Text -> Bool
+matchesAuthWithPurpose g expectedSubject expectedRole expectedPurpose =
+  matchesAuth g expectedSubject expectedRole && g.purpose == expectedPurpose
+
+-- | Fetch and assert an AuthorizationGranted CID matches subject + role.
+requireGrantedAuth :
+    ContractId AuthorizationGranted -> Party -> AuthRole -> Update AuthorizationGranted
+requireGrantedAuth authCid expectedSubject expectedRole = do
+  g <- fetch authCid
+  assertMsg "AuthorizationGranted subject mismatch" $ g.subject == expectedSubject
+  assertMsg "AuthorizationGranted role mismatch" $ g.role == expectedRole
+  pure g
+
+-- | Fetch and assert subject + role + purpose (fail closed on any mismatch).
+requireGrantedAuthWithPurpose :
+    ContractId AuthorizationGranted
+    -> Party
+    -> AuthRole
+    -> Text
+    -> Update AuthorizationGranted
+requireGrantedAuthWithPurpose authCid expectedSubject expectedRole expectedPurpose = do
+  g <- requireGrantedAuth authCid expectedSubject expectedRole
+  assertMsg "AuthorizationGranted purpose mismatch" $ g.purpose == expectedPurpose
+  pure g
+
+-- | Fail-closed auth gate for money-moving choices.
+-- When authRequired=True: Optional must be Some and match subject/role/purpose.
+-- When authRequired=False: auth skipped (demo/test mode only — document explicitly).
+requireAuthWhen :
+    Bool
+    -> Optional (ContractId AuthorizationGranted)
+    -> Party
+    -> AuthRole
+    -> Text
+    -> Update ()
+requireAuthWhen False _ _ _ _ = pure ()
+requireAuthWhen True None _ _ _ =
+  abort "auth required: missing AuthorizationGranted (fail closed)"
+requireAuthWhen True (Some cid) subject role purpose = do
+  _ <- requireGrantedAuthWithPurpose cid subject role purpose
+  pure ()

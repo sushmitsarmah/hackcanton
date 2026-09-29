@@ -1,0 +1,245 @@
+-- | Transfer CBTC into Desk-controlled custody with a separate per-position borrower claim.
+--
+-- Custody invariants (enforced in ensure / assert / choice design):
+--   1. Locked CBTC owner is CreditOfficer (Desk custody). Borrower cannot spend locked CBTC
+--      because MockHolding.Transfer requires owner authorization and owner = creditOfficer.
+--   2. BorrowerClaim is 1:1 with a custody position and does NOT itself hold the CBTC
+--      (no double-pledge via claim — claim is evidence, not a second transferable holding).
+--   3. Borrow / disburse only after collateral settles into CollateralVault.
+--   4. Amounts match: vault.lockedAmount == holding.amount == claim.claimAmount (asserted).
+--   5. No Transfer out of vault except via ReleaseToBorrower / SeizeToLiquidator
+--      (Loan.Repay / Loan.LiquidateFast must exercise these choices — do not Transfer lockedCbtc
+--      directly from Loan). AddCollateral / VaultAddCollateral only Merge within Desk custody.
+--   6. On full repay, claim + custody unlock return CBTC to borrower (atomic with Loan.Repay).
+--   7. On full liquidate (FAST PATH), custody CBTC goes to liquidator; claim archived
+--      (atomic with Loan.LiquidateFast → SeizeToLiquidator).
+--
+-- Path split (PROJECT_PLAN §5.3 — avoid DecMan threshold delay on emergency liquidation):
+--   FAST PATH (pre-authorized): Loan.LiquidateFast → SeizeToLiquidator when HF breached
+--     or past maturity. Designated liquidator; NO DecMan wait.
+--   GATED PATH (FUTURE DecMan): RequestGovernedCustodyRelease for non-emergency
+--     ReleaseToBorrower / admin Seize. Requires DecMan evidence hooks; not executable yet.
+--   Operational repay: Loan.Repay → ReleaseToBorrower (borrower + Desk; not emergency).
+--
+-- FUTURE(DecMan) control #1 topology ownership: Desk custody party registered for CBTC Holding.
+-- FUTURE(DecMan) control #2 tx confirmation around lock / gated release / gated seize.
+-- Do NOT treat CIP-0056-style allocations as durable collateral locks (PROJECT_PLAN §5.2).
+-- Holdings: lockedCbtc / extras are HoldingCid (TokenAdapter). LocalNet MockHolding default.
+module Desk.CollateralCustody where
+
+import Desk.Types
+import Desk.MockToken
+import Desk.Auth
+
+-- | Desk custody vault holding locked CBTC for one bilateral position.
+template CollateralVault
+  with
+    creditOfficer : Party
+    lender : Party
+    borrower : Party
+    liquidator : Party
+    terms : LoanTerms
+    authPolicy : AuthPolicy
+    lockedCbtc : HoldingCid
+    lockedAmount : Money
+  where
+    signatory creditOfficer, borrower
+    observer lender, liquidator
+    ensure lockedAmount > 0.0 && validateTerms terms
+
+    nonconsuming choice VaultAmount : Money
+      controller creditOfficer
+      do
+        pure lockedAmount
+
+    -- | Sanity: locked holding must still be owned by Desk (creditOfficer) and be CBTC;
+    -- amount must match vault ledger (claim should match via RefreshClaim / Loan paths).
+    nonconsuming choice AssertCustodyInvariant : ()
+      controller creditOfficer
+      do
+        h <- fetch lockedCbtc
+        assertMsg "locked CBTC must be owned by Desk (creditOfficer)" $
+          h.owner == creditOfficer
+        assertMsg "locked holding must be CBTC" $ h.asset == CBTC
+        assertMsg "locked amount must match vault ledger" $ h.amount == lockedAmount
+        pure ()
+
+    -- | Top up locked CBTC (merge extra into custody). Only Merge within Desk — no Transfer out.
+    -- Controllers: borrower (provides extra) + creditOfficer (Desk custody merge).
+    choice VaultAddCollateral : ContractId CollateralVault
+      with
+        extraCbtc : HoldingCid
+        borrowerAuthCid : Optional (ContractId AuthorizationGranted)
+      controller borrower, creditOfficer
+      do
+        requireAuthWhen authPolicy.authRequired borrowerAuthCid borrower BorrowerRole purposeAddCollateral
+        extra <- fetch extraCbtc
+        assertMsg "extra must be CBTC" $ extra.asset == CBTC
+        assertMsg "borrower owns extra CBTC" $ extra.owner == borrower
+        assertMsg "extra amount > 0" $ extra.amount > 0.0
+
+        -- Transfer extra into Desk custody, then Merge with existing locked holding.
+        newPieceCid <- exercise extraCbtc Transfer with newOwner = creditOfficer
+        existing <- fetch lockedCbtc
+        assertMsg "existing locked must be Desk-owned" $ existing.owner == creditOfficer
+        assertMsg "existing locked must be CBTC" $ existing.asset == CBTC
+        assertMsg "existing locked amount matches vault" $ existing.amount == lockedAmount
+        mergedCid <- exercise lockedCbtc Merge with otherCid = newPieceCid
+        let newAmount = lockedAmount + extra.amount
+        create this with
+          lockedCbtc = mergedCid
+          lockedAmount = newAmount
+
+    -- | Release all locked CBTC back to borrower (operational repay path via Loan.Repay).
+    -- ONLY Transfer-out for repay. Purpose = purposeRepay (aligned with Loan.Repay).
+    -- Prefer Loan.Repay which also archives BorrowerClaim + Loan atomically.
+    -- Non-emergency / admin release outside repay → RequestGovernedCustodyRelease (FUTURE DecMan).
+    choice ReleaseToBorrower : HoldingCid
+      with
+        borrowerAuthCid : Optional (ContractId AuthorizationGranted)
+      controller creditOfficer, borrower
+      do
+        requireAuthWhen authPolicy.authRequired borrowerAuthCid borrower BorrowerRole purposeRepay
+        h <- fetch lockedCbtc
+        assertMsg "Desk must own locked CBTC before release" $ h.owner == creditOfficer
+        assertMsg "release asset must be CBTC" $ h.asset == CBTC
+        assertMsg "release amount must match vault" $ h.amount == lockedAmount
+        exercise lockedCbtc Transfer with newOwner = borrower
+
+    -- | Seize locked CBTC to designated liquidator — FAST PATH emergency exit.
+    -- Called from Loan.LiquidateFast only. Pre-authorized liquidator; NO DecMan threshold wait.
+    -- Purpose = purposeLiquidate (aligned with Loan.LiquidateFast).
+    -- Prefer Loan.LiquidateFast which also archives BorrowerClaim + Loan atomically.
+    -- Admin / non-emergency seize → RequestGovernedCustodyRelease (FUTURE DecMan), not this choice.
+    choice SeizeToLiquidator : HoldingCid
+      with
+        liquidatorAuthCid : Optional (ContractId AuthorizationGranted)
+      controller creditOfficer, liquidator
+      do
+        requireAuthWhen authPolicy.authRequired liquidatorAuthCid liquidator LiquidatorRole purposeLiquidate
+        h <- fetch lockedCbtc
+        assertMsg "Desk must own locked CBTC before seize" $ h.owner == creditOfficer
+        assertMsg "seize asset must be CBTC" $ h.asset == CBTC
+        assertMsg "seize amount must match vault" $ h.amount == lockedAmount
+        exercise lockedCbtc Transfer with newOwner = liquidator
+
+    -- | GATED PATH — non-emergency custody ReleaseToBorrower / admin Seize.
+    -- NOT the emergency HF-breach liquidation (use Loan.LiquidateFast → SeizeToLiquidator).
+    -- FUTURE(DecMan) control #2: require txConfirmationEvidence (and optional topology /
+    -- appGovernanceEvidence) before any Transfer-out. Fail closed until DecMan is live —
+    -- do NOT fake a confirmation id or execute path.
+    -- Controllers: Desk + lender (custody stakeholders). Liquidator is observer only here.
+    choice RequestGovernedCustodyRelease : ()
+      with
+        -- Documented kinds: "release-to-borrower" | "admin-seize"
+        kind : Text
+        -- FUTURE(DecMan) evidence hooks (must be Some when DecMan is wired):
+        txConfirmationEvidence : Optional Text
+        topologyEvidence : Optional Text
+        appGovernanceEvidence : Optional Text
+      controller creditOfficer, lender
+      do
+        assertMsg "governed custody kind must be release-to-borrower or admin-seize" $
+          kind == "release-to-borrower" || kind == "admin-seize"
+        -- Fail closed: gated path is not executable without live DecMan.
+        case txConfirmationEvidence of
+          None ->
+            abort "FUTURE(DecMan): RequestGovernedCustodyRelease requires txConfirmationEvidence (gated path; DecMan not live — do not fake)"
+          Some _ev ->
+            abort "FUTURE(DecMan): evidence hook present but DecMan settlement not wired — gated custody release not executable yet (do not fake live DecMan)"
+
+-- | Separate per-position borrower claim (does not custody the CBTC itself).
+-- Prevents double-pledge confusion: claim is not a transferable CBTC holding.
+template BorrowerClaim
+  with
+    creditOfficer : Party
+    borrower : Party
+    lender : Party
+    vaultCid : ContractId CollateralVault
+    claimAmount : Money
+  where
+    signatory creditOfficer, borrower
+    observer lender
+    ensure claimAmount > 0.0
+
+    -- | Assert claim amount still matches live vault (call after mutations).
+    nonconsuming choice AssertClaimMatchesVault : ()
+      controller creditOfficer
+      do
+        vault <- fetch vaultCid
+        assertMsg "claim amount must match vault lockedAmount" $
+          vault.lockedAmount == claimAmount
+        assertMsg "claim vault parties" $
+          vault.creditOfficer == creditOfficer && vault.borrower == borrower
+        pure ()
+
+    -- | Refresh claim amount after vault AddCollateral (vaultCid may be replaced).
+    choice RefreshClaim : ContractId BorrowerClaim
+      with
+        newVaultCid : ContractId CollateralVault
+        newAmount : Money
+      controller creditOfficer, borrower
+      do
+        assertMsg "refresh amount > 0" $ newAmount > 0.0
+        vault <- fetch newVaultCid
+        assertMsg "refresh vault parties" $
+          vault.creditOfficer == creditOfficer && vault.borrower == borrower
+        assertMsg "refresh amount matches vault" $ vault.lockedAmount == newAmount
+        create this with
+          vaultCid = newVaultCid
+          claimAmount = newAmount
+
+-- | Optional standalone lock path (PrepareOrigination in Desk.Loan is the primary demo path).
+-- Consuming Lock prevents double-lock of the same request.
+template LockCollateralRequest
+  with
+    creditOfficer : Party
+    lender : Party
+    borrower : Party
+    liquidator : Party
+    terms : LoanTerms
+    authPolicy : AuthPolicy
+  where
+    signatory creditOfficer
+    observer borrower, lender, liquidator
+    ensure validateTerms terms
+
+    choice Lock : (ContractId CollateralVault, ContractId BorrowerClaim)
+      with
+        borrowerCbtc : HoldingCid
+        borrowerAuthCid : Optional (ContractId AuthorizationGranted)
+      controller borrower, creditOfficer
+      do
+        requireAuthWhen authPolicy.authRequired borrowerAuthCid borrower BorrowerRole purposeLock
+        holding <- fetch borrowerCbtc
+        assertMsg "holding must be CBTC" $ holding.asset == CBTC
+        assertMsg "borrower must own CBTC holding" $ holding.owner == borrower
+        assertMsg "CBTC amount must meet terms" $
+          holding.amount >= terms.collateralAmount
+
+        -- Move CBTC into Desk custody — borrower can no longer Transfer it alone.
+        lockedCid <- exercise borrowerCbtc Transfer with newOwner = creditOfficer
+
+        vaultCid <- create CollateralVault with
+          creditOfficer = creditOfficer
+          lender = lender
+          borrower = borrower
+          liquidator = liquidator
+          terms = terms
+          authPolicy = authPolicy
+          lockedCbtc = lockedCid
+          lockedAmount = holding.amount
+
+        claimCid <- create BorrowerClaim with
+          creditOfficer = creditOfficer
+          borrower = borrower
+          lender = lender
+          vaultCid = vaultCid
+          claimAmount = holding.amount
+
+        pure (vaultCid, claimCid)
+
+    choice CancelLockRequest : ()
+      controller creditOfficer
+      do
+        pure ()
