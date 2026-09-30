@@ -23,7 +23,8 @@ for s in "${SCRIPTS[@]}"; do
   if [[ "${RESET_BETWEEN:-0}" == "1" && "$first" -eq 0 ]]; then
     echo "== resetting sandbox between demos =="
     "$SCRIPT_DIR/stop-sandbox.sh"
-    "$SCRIPT_DIR/start-sandbox.sh"
+    # Must be background: foreground start blocks this script forever.
+    BACKGROUND=1 "$SCRIPT_DIR/start-sandbox.sh"
   fi
   first=0
   echo "== daml script $s @ ${LEDGER_HOST}:${LEDGER_PORT} =="
