@@ -32,13 +32,17 @@ daml script --dar .daml/dist/cbtc-collateral-desk-0.1.0.dar \
 | [`scripts/demo-record.md`](./scripts/demo-record.md) | Ordered <5 min recording shot list (happy + liquidate) |
 | [`LOCALNET.md`](./LOCALNET.md) | Path A sandbox · Path B multi-participant · Path C cn-quickstart helper |
 | [`SUBMIT_CHECKLIST.md`](./SUBMIT_CHECKLIST.md) | HackCanton freeze/submit checklist (tracks, BitSafe, Grofty, DAR, video, README) |
+| [`BITSAFE_CONTRIBUTION.md`](./BITSAFE_CONTRIBUTION.md) | BitSafe **Contribution pool** (~20k CC): eligibility, Path A one-shot, honesty vs Gold |
+| [`scripts/contrib-demo.sh`](./scripts/contrib-demo.sh) | One-shot Contribution LocalNet demo (health-check + Ledger full demo; optional Path B) |
 
 ```bash
 ./scripts/prep-demo-record.sh             # recording prep (ide-ledger default)
 ./scripts/health-check.sh                 # pre-submit health (exit 0 = OK)
 ./scripts/run-full-demo.sh                # ide-ledger happy + liquidate
 MODE=ledger ./scripts/run-full-demo.sh    # Ledger API :6865 (sandbox up)
-# Path B: BACKGROUND=1 ./localnet/scripts/start-multi.sh
+./scripts/contrib-demo.sh                 # Contribution pool one-shot (Path A)
+# WITH_PATH_B=1 ./scripts/contrib-demo.sh # + optional Path B proof-multi
+# Path B: BACKGROUND=1 ./localnet/scripts/start-multi.sh && ./localnet/scripts/proof-multi.sh
 # Path C: ./localnet/scripts/path-c-setup.sh   # clone + docs; no heavy pull by default
 # SKIP_DAML_TEST=1 SKIP_NPM=1 ./scripts/health-check.sh   # faster ping-only style
 ```
@@ -76,7 +80,9 @@ Details, whitelist steps, and Ledger API notes: **[ui/README.md](./ui/README.md)
 | `scripts/run-full-demo.sh` | Full demo runner (ide-ledger or `MODE=ledger`) |
 | `scripts/demo-record.md` | <5 min demo recording shot list |
 | `scripts/prep-demo-record.sh` | One-command recording prep |
-| `SUBMIT_CHECKLIST.md` | HackCanton freeze/submit checklist |
+| `scripts/contrib-demo.sh` | Contribution pool LocalNet one-shot (Path A; optional Path B) |
+| `BITSAFE_CONTRIBUTION.md` | BitSafe Contribution eligibility + commands (vs Gold) |
+| `SUBMIT_CHECKLIST.md` | Freeze/submit checklist (tracks, BitSafe, Grofty, DAR, video) |
 | `LOCALNET.md` | Canton Path A sandbox / Path B multi / Path C cn-quickstart helper |
 | `integrations/grofty/` | CIP-103 / Grofty client (`mock` or `live`) + `GROFTY.md` |
 | `integrations/grofty/scripts/prove-auth-flow.ts` | Smallest RequestAuthorization to Grant path |
@@ -103,7 +109,7 @@ Details, whitelist steps, and Ledger API notes: **[ui/README.md](./ui/README.md)
 |---------|--------|
 | **CIP-0112 MainNet pin** | Adapter layer in-repo (`TokenPin` / `TokenAdapter` / `HoldingCid`); placeholders only. Fill real IDs via [TOKEN_PIN.md](./TOKEN_PIN.md) before any MainNet claim — do not invent hashes. |
 | **Grofty SDK** | **Module ready** under `integrations/grofty/` (`@canton-network/dapp-sdk` + mock). Live MainNet blocked on **your** Grofty whitelist + Party ID + DAR upload — see [integrations/grofty/GROFTY.md](./integrations/grofty/GROFTY.md). |
-| **DecMan node** | Scaffold under `integrations/bitsafe/` + Daml `FUTURE(DecMan)` markers — three controls not live; **no fake DecMan**. Gold apply ~4 Oct or LocalNet contribution — see [BITSAFE.md](./integrations/bitsafe/BITSAFE.md). |
+| **DecMan node** | Scaffold under `integrations/bitsafe/` + Daml `FUTURE(DecMan)` markers — three controls not live; **no fake DecMan**. Gold apply ~4 Oct or LocalNet **Contribution** — see [BITSAFE_CONTRIBUTION.md](./BITSAFE_CONTRIBUTION.md) / [BITSAFE.md](./integrations/bitsafe/BITSAFE.md). |
 | **Multi-participant Canton** | **Path A verified** for `Desk.Demo` (`:6865`). **Path B startable:** 2 participants + synchronizer (`start-multi.sh`, ports `:5011`/`:5021`) — party hosting split proven; Desk.Demo cross-participant **not** as-is. **Path C** = cn-quickstart helper (`path-c-setup.sh`); stack not started by default. |
 
 
@@ -151,12 +157,24 @@ npm run prove:mock     # offline prove — works today
 | Desk DAR on MainNet synchronizer | Not uploaded from this spike |
 | CIP-0112 pins / DecMan | Out of scope for Grofty — do not fake |
 
+### Contribution pool (BitSafe LocalNet ~20k CC)
+
+**Plan:** prepare Contribution always; **claim Contribution only if not submitting Gold** (Gold applicants are ineligible for the Contribution pool until cards say otherwise). If Gold / DecMan node never approved → skip Gold; submit Contribution.
+
+| Step | Command |
+|------|---------|
+| One-shot Path A | `./scripts/contrib-demo.sh` → expect `CONTRIB_DEMO_PASS` |
+| Manual | `./scripts/health-check.sh` then sandbox + `MODE=ledger ./scripts/run-full-demo.sh` |
+| Optional Path B | `BACKGROUND=1 ./localnet/scripts/start-multi.sh` then `./localnet/scripts/proof-multi.sh` |
+
+Full eligibility, video checklist, honesty: **[BITSAFE_CONTRIBUTION.md](./BITSAFE_CONTRIBUTION.md)**. LocalNet details: [LOCALNET.md](./LOCALNET.md).
+
 ### BitSafe / Decentralization Manager (Desk party)
 
 - **Package:** `integrations/bitsafe` — `DECMAN_MODE=scaffold|http`. Scaffold maps to three controls (topology, tx confirmation, app governance); `http` probes a **real** DecMan `/node-config` only.
-- **Docs / Gold vs Contribution / checklist:** [integrations/bitsafe/BITSAFE.md](./integrations/bitsafe/BITSAFE.md), [DecManEvidence.md](./integrations/bitsafe/DecManEvidence.md).
+- **Docs / Gold vs Contribution / checklist:** [BITSAFE_CONTRIBUTION.md](./BITSAFE_CONTRIBUTION.md), [integrations/bitsafe/BITSAFE.md](./integrations/bitsafe/BITSAFE.md), [DecManEvidence.md](./integrations/bitsafe/DecManEvidence.md).
 - **Run scaffold prove:** `cd integrations/bitsafe && npm install && npm run prove:scaffold`
-- **Do not fake** a live DecMan node or Gold topology dumps. Chase Gold apply by **~4 Oct 2026** (buffer ~2 Oct); else LocalNet contribution via [DLC-link/decentralization-manager](https://github.com/DLC-link/decentralization-manager).
+- **Do not fake** a live DecMan node or Gold topology dumps. Chase Gold apply by **~4 Oct 2026** (buffer ~2 Oct); else claim LocalNet **Contribution** (this desk’s Path A integration + custom Daml) — see [BITSAFE_CONTRIBUTION.md](./BITSAFE_CONTRIBUTION.md). Optional DecMan OSS LocalNet: [DLC-link/decentralization-manager](https://github.com/DLC-link/decentralization-manager).
 - Desk / CreditOfficer custody party is the DecMan subject; Grofty stays borrower/lender/liquidator only.
 
 

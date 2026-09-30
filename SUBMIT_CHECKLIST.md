@@ -42,14 +42,43 @@ One-liner for Financial card:
 
 Theme = **Decentralized Party / DecMan** on the Desk party (not “we use CBTC”).
 
-- [ ] Re-read [integrations/bitsafe/BITSAFE.md](./integrations/bitsafe/BITSAFE.md)
-- [ ] Path chosen: **Gold** (DevNet/MainNet Decentralized Party, apply ~4 Oct / buffer ~2 Oct) **or** **Contribution** (LocalNet) — mutually exclusive until cards say otherwise
+- [ ] Re-read [integrations/bitsafe/BITSAFE.md](./integrations/bitsafe/BITSAFE.md) and **[BITSAFE_CONTRIBUTION.md](./BITSAFE_CONTRIBUTION.md)**
+- [ ] Path chosen: **Gold** (DevNet/MainNet Decentralized Party, apply ~4 Oct / buffer ~2 Oct) **or** **Contribution** (LocalNet ~20k CC) — **mutually exclusive** (Gold applicants ineligible for Contribution pool until cards say otherwise)
+- [ ] Working plan: if Gold / node **never approved** → **do not** submit Gold; prepare Contribution and claim it **only if** not submitting Gold
 - [ ] `cd integrations/bitsafe && npm run prove:scaffold` documented as scaffold only (not Gold evidence)
 - [ ] Printable three controls filled or honestly marked N/A: [integrations/bitsafe/DecManEvidence.md](./integrations/bitsafe/DecManEvidence.md)
 - [ ] Screenshots / API dumps attached only for **real** DecMan (never scaffold-as-Gold)
 - [ ] Daml `FUTURE(DecMan)` markers left fail-closed (`RequestGovernedCustodyRelease`)
 
 **Do not submit** Gold evidence from IDE-ledger-only or `DECMAN_MODE=scaffold`.
+
+### C2. Contribution pool (LocalNet ~20k CC) — one-shot
+
+**What we submit:** reproducible LocalNet **app integration** + **custom Daml modules** (`daml/Desk/*`), not fake DecMan Gold.
+
+- [ ] [BITSAFE_CONTRIBUTION.md](./BITSAFE_CONTRIBUTION.md) followed
+- [ ] Path A green: health-check + Ledger `run-full-demo` (or `./scripts/contrib-demo.sh` → `CONTRIB_DEMO_PASS`)
+- [ ] Optional Path B: `./localnet/scripts/proof-multi.sh` → `PATH_B_PROOF_OK`
+- [ ] Video / form: claim **Contribution only** if Gold was never submitted / never applied
+- [ ] Honesty: no live DecMan / Gold topology claims on camera or in README
+
+```bash
+export PATH="$HOME/.daml/bin:$PATH"
+cd ~/Projects/hackathons/current/cbtc-collateral-desk
+
+# Preferred one-shot (starts Path A sandbox if needed):
+./scripts/contrib-demo.sh
+
+# Manual equivalent:
+./scripts/health-check.sh
+./localnet/scripts/start-sandbox.sh          # other terminal
+MODE=ledger ./scripts/run-full-demo.sh
+
+# Optional Path B proof:
+# BACKGROUND=1 ./localnet/scripts/start-multi.sh
+# ./localnet/scripts/proof-multi.sh
+# WITH_PATH_B=1 ./scripts/contrib-demo.sh
+```
 
 ---
 
@@ -96,7 +125,7 @@ WITH_UI=1 ./scripts/run-full-demo.sh       # then record operator console
 - [ ] [PROJECT_PLAN.md](./PROJECT_PLAN.md) scope not widened past Financial MVP
 - [ ] [LOCALNET.md](./LOCALNET.md) Path A verified notes accurate
 - [ ] [TOKEN_PIN.md](./TOKEN_PIN.md) placeholders only unless real IDs filled
-- [ ] Entry points listed: `scripts/health-check.sh`, `scripts/run-full-demo.sh`, `scripts/demo-record.md`, this checklist
+- [ ] Entry points listed: `scripts/health-check.sh`, `scripts/run-full-demo.sh`, `scripts/contrib-demo.sh`, `scripts/demo-record.md`, [BITSAFE_CONTRIBUTION.md](./BITSAFE_CONTRIBUTION.md), this checklist
 
 ---
 
@@ -106,7 +135,7 @@ WITH_UI=1 ./scripts/run-full-demo.sh       # then record operator console
 - [ ] Health check re-run green: `./scripts/health-check.sh`
 - [ ] Video final URL / file: _______________
 - [ ] AppsFactory form fields filled (tracks, BitSafe path, Grofty claim level)
-- [ ] BitSafe evidence pack attached **or** Contribution-only claim stated
+- [ ] BitSafe: Gold evidence pack **or** Contribution-only claim (not both) — see [BITSAFE_CONTRIBUTION.md](./BITSAFE_CONTRIBUTION.md)
 - [ ] Submitted before **9 Oct 2026 23:59 UTC**
 - [ ] Confirmation / receipt saved: _______________
 
@@ -122,9 +151,13 @@ cd ~/Projects/hackathons/current/cbtc-collateral-desk
 ./scripts/run-full-demo.sh
 ./scripts/run-tests.sh
 
-# Optional LocalNet proof
+# Contribution pool (LocalNet) one-shot — see BITSAFE_CONTRIBUTION.md
+./scripts/contrib-demo.sh
+
+# Optional LocalNet proof (manual)
 ./localnet/scripts/start-sandbox.sh          # other terminal
 MODE=ledger ./scripts/run-full-demo.sh
+# Path B: BACKGROUND=1 ./localnet/scripts/start-multi.sh && ./localnet/scripts/proof-multi.sh
 ```
 
-**Honesty rule:** Prefer a smaller true claim (LocalNet + mock Grofty + DecMan scaffold) over a fake MainNet/Gold story.
+**Honesty rule:** Prefer a smaller true claim (LocalNet Contribution + mock Grofty + DecMan scaffold) over a fake MainNet/Gold story. Prepare Contribution always; claim it only if not submitting Gold.

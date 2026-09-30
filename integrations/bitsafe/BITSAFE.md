@@ -38,6 +38,7 @@ Re-confirm bounty amounts and Gold vs Contribution exclusivity on the **official
 | **Contribution** | Canton **LocalNet** + self-hosted DecMan (or documented contribution PR path) | Same three controls against LocalNet participants; open-source contribution / integration evidence | Fallback if Gold node/apply path slips |
 
 Treat Gold and Contribution as **mutually exclusive** until challenge cards say otherwise.
+**Gold applicants are ineligible for the Contribution pool.** Prepare Contribution materials always; **claim Contribution only if not submitting Gold**. If Gold/node never approved → skip Gold and claim Contribution. Full LocalNet one-shot + checklist: repo root **[BITSAFE_CONTRIBUTION.md](../../BITSAFE_CONTRIBUTION.md)**.
 
 ### What **you** must do for Gold by ~4 Oct
 
@@ -51,6 +52,10 @@ Treat Gold and Contribution as **mutually exclusive** until challenge cards say 
 5. **Do not** claim Gold with IDE-ledger-only demos or fake DecMan HTTP stubs.
 
 ### LocalNet contribution fallback
+
+**Desk claim (primary for ~20k CC Contribution):** reproducible Path A LocalNet app integration of this repo’s custom Daml modules — see [BITSAFE_CONTRIBUTION.md](../../BITSAFE_CONTRIBUTION.md) and `./scripts/contrib-demo.sh`. That path does **not** require a live DecMan node and must not be sold as Gold.
+
+**Optional DecMan OSS LocalNet** (extra wiring / PR evidence, still not Gold):
 
 1. Clone https://github.com/DLC-link/decentralization-manager and check out an **approved release tag**.
 2. Meet [prerequisites](https://docs.bitsafe.finance/decentralization-manager/get-started/prerequisites): Rust ≥1.85, Node ^20.19 / ≥22.12, Docker optional, Daml/dpm as listed, GitHub SSH key for `canton-lib` Docker builds.
