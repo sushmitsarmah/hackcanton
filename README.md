@@ -155,6 +155,16 @@ Bar: *"demonstrate an end-to-end flow using Grofty on MainNet."* Small amounts f
 
 **Summary:** the **wallet → onboard → fund (CC) → swap (USDCx) → connect → authorize/sign** flow runs on Canton MainNet with this party, and our console integrates it end-to-end as the authorization provider. The only step outside our control is executing our *custom* Daml contract on the third-party participant, which requires that operator to vet our DAR. We show that contract end-to-end on LocalNet instead. See [integrations/grofty/GROFTY.md](./integrations/grofty/GROFTY.md) and the UI walkthrough in [scripts/demo-runbook.md](./scripts/demo-runbook.md).
 
+**Evidence — `grofty_screenshots/`:**
+
+| # | Screenshot |
+| --- | --- |
+| 1 | ![Grofty 1](./grofty_screenshots/1.png) |
+| 2 | ![Grofty 2](./grofty_screenshots/2.png) |
+| 3 | ![Grofty 3](./grofty_screenshots/3.png) |
+| 4 | ![Grofty 4](./grofty_screenshots/4.png) |
+| 5 | ![Grofty 5](./grofty_screenshots/5.png) |
+
 **Layout**
 
 | Path | Role |
