@@ -35,10 +35,11 @@ template LoanProposal
       controller lender
       do
         case lenderAuthCid of
-          None -> pure ()
+          None ->
+            assertMsg "lender auth required (fail closed)" $ not authPolicy.authRequired
           Some cid -> do
-            _ <- requireGrantedAuth cid lender LenderRole
-            pure ()
+            g <- requireGrantedAuth cid lender LenderRole
+            assertTrustedAuthority authPolicy g
         create LenderAccepted with
           creditOfficer = creditOfficer
           lender = lender
@@ -87,10 +88,11 @@ template LenderAccepted
       controller borrower
       do
         case borrowerAuthCid of
-          None -> pure ()
+          None ->
+            assertMsg "borrower auth required (fail closed)" $ not authPolicy.authRequired
           Some cid -> do
-            _ <- requireGrantedAuth cid borrower BorrowerRole
-            pure ()
+            g <- requireGrantedAuth cid borrower BorrowerRole
+            assertTrustedAuthority authPolicy g
         create AcceptedTerms with
           creditOfficer = creditOfficer
           lender = lender

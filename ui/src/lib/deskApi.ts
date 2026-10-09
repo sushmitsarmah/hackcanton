@@ -29,6 +29,10 @@ import {
 
 export type DeskApi = {
   parties: DeskParties
+  /** 'mock' = in-memory, 'ledger' = submitting to Canton JSON Ledger API. */
+  readonly backend: 'mock' | 'ledger'
+  /** Subscribe to detailed step events (ledger tx ids etc). Returns an unsubscribe. */
+  onEvent(cb: (e: { level: 'info' | 'ok' | 'warn' | 'error'; message: string }) => void): () => void
   getGrofty(): GroftyClient
   getGroftyMode(): GroftyMode
   setGroftyMode(mode: GroftyMode): Promise<void>
@@ -119,6 +123,11 @@ export function createDeskApi(
 
   return {
     parties,
+    backend: 'mock',
+    onEvent() {
+      // The mock has no sub-step telemetry.
+      return () => {}
+    },
 
     getGrofty() {
       return grofty

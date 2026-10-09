@@ -8,21 +8,66 @@ type Props = {
 }
 
 function shortParty(p: string): string {
-  const head = p.split('::')[0] ?? p
-  return head
+  return p.split('::')[0] ?? p
 }
 
 export function StatusPanel({ position, parties }: Props) {
   const s = positionSummary(position)
   return (
     <section className="panel status-panel">
-      <h2>Position</h2>
-      <dl className="kv">
+      <div className="panel-title">
+        <h2>Position &amp; Controls</h2>
+        <span className="pill green">♢ Desk custody</span>
+      </div>
+
+      <div className="control">
+        <b>♢</b>
+        <div>
+          <strong>Collateral Custody</strong>
+          <p>
+            {fmtNum(position.lockedCbtc, 4)} CBTC
+            <br />
+            <span>
+              {position.phase === 'idle' ? 'Not locked' : 'In custody · Not transferable'}
+            </span>
+          </p>
+        </div>
+      </div>
+
+      <div className="control">
+        <b>♙</b>
+        <div>
+          <strong>
+            Authorization <small>(Grofty)</small>
+          </strong>
+          <p>
+            {position.grants.length} grant{position.grants.length === 1 ? '' : 's'}
+            <br />
+            <span>Desk / CreditOfficer never Grofty-authorized</span>
+          </p>
+        </div>
+      </div>
+
+      <div className="control">
+        <b>◉</b>
+        <div>
+          <strong>Health</strong>
+          <p>
+            HF {s.hf != null ? s.hf.toFixed(3) : '—'} · LTV{' '}
+            {s.ltv != null ? fmtPct(s.ltv) : '—'}
+            <br />
+            <span>
+              Mark {position.markPrice != null ? fmtNum(position.markPrice) : '—'} ·
+              Debt {s.debt != null ? fmtNum(s.debt) : '—'}
+            </span>
+          </p>
+        </div>
+      </div>
+
+      <dl className="kv" style={{ marginTop: '0.75rem' }}>
         <dt>Phase</dt>
         <dd>
-          <code className={`phase phase-${position.phase}`}>
-            {position.phase}
-          </code>
+          <code className={`phase phase-${position.phase}`}>{position.phase}</code>
         </dd>
         <dt>Proposal</dt>
         <dd className="mono">{position.proposalId ?? '—'}</dd>
@@ -32,28 +77,15 @@ export function StatusPanel({ position, parties }: Props) {
         <dd className="mono">
           {position.vaultClaimId ?? '—'} / {position.loanId ?? '—'}
         </dd>
-        <dt>Locked CBTC</dt>
-        <dd>{fmtNum(position.lockedCbtc, 4)}</dd>
-        <dt>Mark price</dt>
-        <dd>
-          {position.markPrice != null ? fmtNum(position.markPrice) : '—'} USDCx
-        </dd>
-        <dt>Debt</dt>
-        <dd>{s.debt != null ? `${fmtNum(s.debt)} USDCx` : '—'}</dd>
-        <dt>HF / LTV</dt>
-        <dd>
-          {s.hf != null ? s.hf.toFixed(3) : '—'} /{' '}
-          {s.ltv != null ? fmtPct(s.ltv) : '—'}
-        </dd>
-        <dt>Auth grants</dt>
-        <dd>{position.grants.length}</dd>
       </dl>
+
       {position.lastError && (
         <p className="error-banner" role="alert">
           {position.lastError}
         </p>
       )}
-      <h3>Parties (mock)</h3>
+
+      <h3 className="subhead">Parties</h3>
       <ul className="party-list">
         <li>
           <strong>Desk</strong> {shortParty(parties.creditOfficer)}

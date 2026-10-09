@@ -26,7 +26,9 @@
     "node": ">=20"
   },
   "dependencies": {
-    "@canton-network/dapp-sdk": "^1.7.1"
+    "@canton-network/dapp-sdk": "^1.7.1",
+    "@walletconnect/sign-client": "^2.26.0",
+    "@walletconnect/types": "^2.26.0"
   },
   "devDependencies": {
     "@types/node": "^22.13.10",

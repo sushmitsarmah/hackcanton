@@ -305,6 +305,42 @@ testDisburseFailsWrongPurpose = script do
       borrowerAuthCid = Some borrowerAuthD
   pure ()
 
+-- | Trusted-auth fix: a grant signed by any party other than the policy's
+-- trusted authority must be rejected (closes the self-grant hole).
+testDisburseFailsUntrustedAuthority : Script ()
+testDisburseFailsUntrustedAuthority = script do
+  p <- allocateFixture
+  now <- getTime
+  let terms = sampleTerms now
+      policy = productionAuthWith p.grofty
+  -- Origin with the real grofty grants, but bind the policy to the grofty party.
+  (readyCid, usdcCid, _, borrowerAuthD, _) <- originateReady p terms policy 2.0
+  -- Borrower self-issues a grant for the lender role → authority = borrower, not grofty.
+  rogueLenderAuth <- submit p.borrower do
+    createCmd AuthorizationGranted with
+      authority = p.borrower
+      subject = p.lender
+      role = LenderRole
+      purpose = purposeDisburse
+  submitMustFail (actAs [p.lender, p.borrower, p.creditOfficer]) do
+    exerciseCmd readyCid Disburse with
+      lenderUsdcx = usdcCid
+      lenderAuthCid = Some rogueLenderAuth
+      borrowerAuthCid = Some borrowerAuthD
+  pure ()
+
+-- | Same policy, but the real grofty-signed grant is accepted.
+testDisburseAcceptsTrustedAuthority : Script ()
+testDisburseAcceptsTrustedAuthority = script do
+  p <- allocateFixture
+  now <- getTime
+  let terms = sampleTerms now
+      policy = productionAuthWith p.grofty
+  (readyCid, usdcCid, lenderAuthD, borrowerAuthD, _) <-
+    originateReady p terms policy 2.0
+  _ <- disburseLoan p readyCid usdcCid (Some lenderAuthD) (Some borrowerAuthD)
+  pure ()
+
 testAuthOptionalModeAllowsNone : Script ()
 testAuthOptionalModeAllowsNone = script do
   p <- allocateFixture

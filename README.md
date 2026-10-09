@@ -1,8 +1,14 @@
-# CBTC Collateral Desk
+# CBTC Collateral Desk — collat.trade
 
 **HackCanton S3 — Financial Applications**
 
-Private loan-origination and collateral-control workspace for **bilateral CBTC lending on Canton** (not a money-market pool like Alpend/ACME).
+Private loan-origination and collateral-control workspace for **bilateral CBTC lending on Canton** (not a money-market pool like Alpend/ACME). Hosted console + AI assistant: **https://collat.trade**.
+
+**Status (2026-10-09):**
+- **LocalNet Ledger API E2E green** — `./scripts/contrib-demo.sh` → `CONTRIB_DEMO_PASS` (happy + liquidate on real Canton `:6865`).
+- **Grofty integrated and proven** — the real CIP-103 wallet signs `AuthorizationGranted`; a live *loan* additionally needs the Desk DAR vetted on the participant hosting the wallet party (the wallet cannot upload packages).
+- **AI desk assistant** — assistant-ui front end + a Cloudflare Worker provider layer (OpenRouter / Workers AI / Ollama / OpenAI-compatible).
+- BitSafe: claim **Contribution only** (Gold requires a live DecMan node; apply window passed).
 
 Full scope, gates, calendar, and validation: see **[PROJECT_PLAN.md](./PROJECT_PLAN.md)**.
 
@@ -47,15 +53,21 @@ MODE=ledger ./scripts/run-full-demo.sh    # Ledger API :6865 (sandbox up)
 # SKIP_DAML_TEST=1 SKIP_NPM=1 ./scripts/health-check.sh   # faster ping-only style
 ```
 
-## Operator console (UI)
+## Operator console (UI) — collat.trade
 
-Thin credit-officer demo console (propose → accept → lock → disburse → repay / liquidate) with local mock ledger state and **Grofty mock/live** (CIP-0103). Toggle Live in the Grofty panel when the extension + whitelist are ready.
+Credit-officer console (propose → accept → lock → disburse → repay / liquidate) with local mock ledger state, **Grofty mock/live** (CIP-0103), and a built-in **AI desk assistant** (assistant-ui + a Cloudflare Worker provider layer).
+
+**Hosted:** https://collat.trade — `/` is the landing page, `/#/desk` is the console.
 
 ```bash
 cd ui
 npm install
 npm run dev
+npm run build && npx wrangler deploy   # deploys the SPA + /api/* Worker
 ```
+
+- **AI assistant:** floating launcher on the console. Providers: OpenRouter (default), Cloudflare Workers AI (native binding or token), Ollama / Ollama Cloud, any OpenAI-compatible endpoint. The model can **propose** actions (`propose_terms`, `desk_action`) but a state change needs an explicit operator confirmation — see `worker/ai/`. Set keys with `wrangler secret put` (see `ui/.dev.vars.example`).
+- **Grofty:** Mock for offline/LocalNet; Live when the extension is present. Live Grofty is **proven**: the wallet signs `AuthorizationGranted` on Canton. A live *loan* additionally requires the Desk DAR to be vetted on the participant hosting the wallet party (the wallet itself cannot upload packages).
 
 Details, whitelist steps, and Ledger API notes: **[ui/README.md](./ui/README.md)**. Grofty package docs: **[integrations/grofty/GROFTY.md](./integrations/grofty/GROFTY.md)**.
 
@@ -95,6 +107,7 @@ Details, whitelist steps, and Ledger API notes: **[ui/README.md](./ui/README.md)
 ### Hardened in this repo (Daml / LocalNet)
 
 - **Mandatory auth** on money-moving choices when `AuthPolicy.authRequired=True` (production default): Lock, Disburse, AddCollateral / VaultAddCollateral, Repay, LiquidateFast / Liquidate, ReleaseToBorrower, SeizeToLiquidator. Uses `requireAuthWhen` → fail closed if `AuthorizationGranted` is missing or subject/role/purpose mismatch. Demos grant purpose-specific auth (prefer this over `demoAuthOptional`).
+- **Trusted authority**: `AuthPolicy.trustedAuthority` (set via `productionAuthWith`; `None` = legacy) binds every `AuthorizationGranted` to the Grofty authority party, closing the self-grant hole where any party could create evidence. Covered by `testDisburseFailsUntrustedAuthority` / `testDisburseAcceptsTrustedAuthority`.
 - **Custody invariants:** Desk (`creditOfficer`) owns locked CBTC; vault amount matches holding and claim; Loan.Repay / LiquidateFast exit custody only via `ReleaseToBorrower` / `SeizeToLiquidator` (no direct Transfer of `lockedCbtc` from Loan).
 - **Liquidation path split (Point 6):**
   - **Fast path:** `Loan.LiquidateFast` (alias `Liquidate`) — designated prefunded liquidator when HF < 1 or past maturity; pre-authorized at agreement setup; **does not wait** on DecMan threshold; seizes via `SeizeToLiquidator`.

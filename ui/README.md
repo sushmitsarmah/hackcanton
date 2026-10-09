@@ -78,14 +78,39 @@ ui/src/
     Propose / Accept / Lock / Disburse / Repay / Liquidate / …
 ```
 
-## Ledger API later
+## Ledger API (Path A sandbox) — wired
 
-Today `deskApi.ts` mutates in-memory state. To hit Canton:
+The console drives a **real Canton Ledger API** when one is reachable, and falls
+back to in-memory mock when it is not (the header badge shows which):
 
-1. Point a thin `ledgerClient` at JSON Ledger API (or participant HTTP/gRPC gateway).
-2. Replace each `deskApi` method body with Create / Exercise commands.
-3. Pass `AuthorizationGranted` contract ids from Grofty (mock or live CIP-103) into choice arguments where `AuthPolicy.authRequired=True`.
-4. Keep this step UX; only the transport behind `createDeskApi` changes.
+| File | Role |
+| --- | --- |
+| `lib/ledgerClient.ts` | Canton JSON Ledger API v2 client (`/v2/parties`, `/v2/commands/submit-and-wait-for-transaction`) |
+| `lib/ledgerDeskApi.ts` | Same `DeskApi` surface as `deskApi.ts`, every step submits real commands (mirrors `daml/Desk/Demo.daml`) |
+| `lib/useLedger.ts` | Pings the ledger, resolves/allocates the on-ledger parties, swaps the console to the ledger backend |
+
+The JSON API sends no CORS headers, so requests go through the Vite dev proxy
+`/ledger` → `http://localhost:7575` (override with `VITE_LEDGER_PROXY`).
+
+### Run it against LocalNet
+
+```bash
+# Terminal 1 — Path A sandbox (from repo root)
+export JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home
+export PATH="$JAVA_HOME/bin:$HOME/.daml/bin:$PATH"
+./localnet/scripts/start-sandbox.sh          # or BACKGROUND=1 ...
+
+# Terminal 2 — console
+cd ui && npm run dev                          # http://localhost:5173/#/desk
+```
+
+Open the console: the badge reads **Ledger: live (/v2)** and every button submits
+a real transaction. With no sandbox, it reads **Ledger: mock** and the same flow
+runs in memory.
+
+Notes: the ledger path uses a local `GroftyAuth` stand-in party for authorization
+(no wallet needed on LocalNet); contract ids are the real ledger cids. The
+hosted site (collat.trade) has no ledger, so it stays mock + live-Grofty-signing.
 
 ## Demo tips
 
@@ -96,5 +121,5 @@ Today `deskApi.ts` mutates in-memory state. To hit Canton:
 
 ## Out of scope (this UI)
 
-- Full ledger submit for Loan/Custody, CIP-0112 MainNet pins, DecMan, multi-participant privacy proof.
-- Coding points 4–7 (do not expand here).
+- CIP-0112 MainNet pins, live DecMan, multi-participant privacy proof.
+- The ledger path targets Path A sandbox; cross-participant (Path B) is a topology proof only.

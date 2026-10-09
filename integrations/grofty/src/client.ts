@@ -22,12 +22,32 @@ export function resolveGroftyMode(
   return 'mock'
 }
 
+/** Merge documented GROFTY_* env vars as defaults when config omits a field. */
+export function configFromEnv(
+  config: GroftyClientConfig = {},
+  env: EnvLike = readEnv(),
+): GroftyClientConfig {
+  return {
+    mode: config.mode,
+    authModuleId: config.authModuleId ?? env.GROFTY_AUTH_MODULE_ID,
+    remoteGatewayRpcUrl:
+      config.remoteGatewayRpcUrl ?? env.GROFTY_REMOTE_GATEWAY_RPC_URL,
+    preferredProviderId:
+      config.preferredProviderId ?? env.GROFTY_PREFERRED_PROVIDER_ID,
+    mockAuthorityParty:
+      config.mockAuthorityParty ?? env.GROFTY_MOCK_AUTHORITY_PARTY,
+    activeContractsResource:
+      config.activeContractsResource ?? env.GROFTY_ACTIVE_CONTRACTS_RESOURCE,
+  }
+}
+
 export function createGroftyClient(
   config: GroftyClientConfig = {},
 ): GroftyClient {
-  const mode = resolveGroftyMode(config.mode)
+  const merged = configFromEnv(config)
+  const mode = resolveGroftyMode(merged.mode)
   if (mode === 'live') {
-    return new LiveGroftyClient({ ...config, mode })
+    return new LiveGroftyClient({ ...merged, mode })
   }
-  return new MockGroftyClient({ ...config, mode })
+  return new MockGroftyClient({ ...merged, mode })
 }

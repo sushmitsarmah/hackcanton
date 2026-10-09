@@ -2,9 +2,121 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>CBTC Collateral Desk — Operator Console</title>
+
+    <title>collat.trade — Private Bilateral CBTC Credit on Canton</title>
+    <meta
+      name="description"
+      content="collat.trade is a private loan-origination and collateral-control workspace for bilateral CBTC-backed USDCx lending on Canton. Named counterparties, desk-controlled collateral custody, Grofty-authorized settlement, and governed liquidation — not a pooled money market."
+    />
+    <meta name="theme-color" content="#141009" />
+    <meta name="color-scheme" content="dark light" />
+    <meta name="application-name" content="collat.trade" />
+    <meta name="apple-mobile-web-app-title" content="collat.trade" />
+    <meta name="author" content="collat.trade" />
+    <link rel="canonical" href="https://collat.trade/" />
+
+    <!-- Icons -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/favicon.svg" />
+    <link rel="mask-icon" href="/favicon.svg" color="#F5B544" />
+    <link rel="manifest" href="/site.webmanifest" />
+
+    <!-- Open Graph -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="collat.trade" />
+    <meta property="og:title" content="collat.trade — Private Bilateral CBTC Credit on Canton" />
+    <meta
+      property="og:description"
+      content="A private loan-origination and collateral-control workspace for bilateral CBTC-backed USDCx lending on Canton. Desk-controlled custody, Grofty-authorized settlement, governed liquidation."
+    />
+    <meta property="og:url" content="https://collat.trade/" />
+    <meta property="og:image" content="https://collat.trade/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="collat.trade — private bilateral CBTC credit on Canton" />
+    <meta property="og:locale" content="en_US" />
+
+    <!-- Twitter / X -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="collat.trade — Private Bilateral CBTC Credit on Canton" />
+    <meta
+      name="twitter:description"
+      content="Private bilateral CBTC-backed USDCx credit on Canton. Named counterparties, desk-controlled collateral custody, governed settlement."
+    />
+    <meta name="twitter:image" content="https://collat.trade/og.png" />
+
+    <!-- Robots / crawlers (incl. generative-AI agents) -->
+    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />
+    <meta name="googlebot" content="index, follow" />
+    <meta name="bingbot" content="index, follow" />
+    <meta name="rating" content="general" />
+
+    <!-- Structured data: SoftwareApplication (GEO-friendly, factual) -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        "name": "collat.trade",
+        "alternateName": "CBTC Collateral Desk",
+        "applicationCategory": "FinanceApplication",
+        "operatingSystem": "Web",
+        "url": "https://collat.trade/",
+        "description": "Private loan-origination and collateral-control workspace for bilateral CBTC-backed USDCx lending on Canton. Named counterparties, desk-controlled collateral custody, Grofty (CIP-0103) authorization, and governed or fast liquidation.",
+        "featureList": [
+          "Bilateral loan origination with per-loan agreed terms",
+          "Desk-controlled CBTC collateral custody with borrower claims",
+          "Lender-prefunded USDCx disbursement (no minting)",
+          "Grofty (CIP-0103) authorization for borrower, lender and liquidator roles",
+          "Health-factor and LTV monitoring with fast and governed liquidation paths",
+          "Party-scoped privacy on Canton"
+        ],
+        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+        "publisher": { "@type": "Organization", "name": "collat.trade", "url": "https://collat.trade/" }
+      }
+    </script>
+
+    <!-- Structured data: FAQ (common questions about the product) -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "FAQPage",
+        "mainEntity": [
+          {
+            "@type": "Question",
+            "name": "What is collat.trade?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "collat.trade is a private credit-officer workspace for bilateral CBTC-backed USDCx lending on Canton. It handles loan origination, desk-controlled collateral custody, disbursement from a named lender, repayment, and governed liquidation."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Is collat.trade a pooled money market?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "No. collat.trade is built for bilateral lending, where a named lender funds a specific borrower under per-loan agreed terms with desk-controlled collateral custody — not shared liquidity pools."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "What is CBTC?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "CBTC is a Bitcoin-backed collateral instrument on Canton. It is used here as collateral and is not described as a traditional real-world asset."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "What does Grofty do in collat.trade?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Grofty is a CIP-0103 browser wallet that authorizes the borrower, lender, and liquidator roles. The desk and credit officer are never Grofty-authorized; collateral custody and enforcement are subject to the Decentralization Manager once live."
+            }
+          }
+        ]
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>

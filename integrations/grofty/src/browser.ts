@@ -17,4 +17,6 @@ export {
   LiveGroftyClient,
   GROFTY_PROVIDER_ID,
   detectCip103Provider,
+  requestAnnouncedProviders,
 } from './live-adapter.js'
+export type { AnnouncedProvider } from './live-adapter.js'

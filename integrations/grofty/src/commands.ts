@@ -1,4 +1,5 @@
 import type {
+  AuthorizationGrantedArgs,
   AuthorizationProposalArgs,
   RequestAuthorizationArgs,
 } from './types.js'
@@ -71,6 +72,30 @@ export function buildGrantExercise(
       contractId: proposalContractId,
       choice: 'Grant',
       choiceArgument: {},
+    },
+  }
+}
+
+/**
+ * CIP-103 CreateCommand for AuthorizationGranted.
+ *
+ * AuthorizationGranted has signatory == authority (Desk.Auth:93), so the Grofty
+ * authority wallet can create the evidence directly — no CreditOfficer proposal
+ * round-trip required. This is the primary live path for this desk.
+ */
+export function buildAuthorizationGrantedCreate(
+  args: AuthorizationGrantedArgs,
+  templateId: string = authorizationGrantedTemplateId(),
+) {
+  return {
+    CreateCommand: {
+      templateId,
+      createArguments: {
+        authority: args.authority,
+        subject: args.subject,
+        role: args.role,
+        purpose: args.purpose,
+      },
     },
   }
 }

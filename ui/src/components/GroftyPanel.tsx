@@ -35,6 +35,8 @@ export function GroftyPanel({
   const [error, setError] = useState<string | null>(null)
   const [proposalCid, setProposalCid] = useState('')
   const [lastRequestCmd, setLastRequestCmd] = useState<string | null>(null)
+  const [packageStatus, setPackageStatus] = useState<string | null>(null)
+  const [networkInfo, setNetworkInfo] = useState<string | null>(null)
   const [localBusy, setLocalBusy] = useState(false)
   const working = busy || localBusy
 
@@ -71,23 +73,81 @@ export function GroftyPanel({
         return
       }
       const r = await detectCip103Provider()
-      setProbe(r.present ? `present: ${r.detail}` : `missing: ${r.detail}`)
-      if (!r.present) {
-        throw new Error(
-          `Grofty extension not detected. Install ${GROFTY_INSTALL_URL} (id ${GROFTY_EXTENSION_ID}), then whitelist ${GROFTY_QUICKSTART_URL}`,
+      setProbe(
+        r.present
+          ? `present: ${r.detail}`
+          : `not announced: ${r.detail} — Connect may still work (tries the extension postMessage handshake).`,
+      )
+    })
+
+  const onDisconnect = () =>
+    run('Grofty disconnect', async () => {
+      await client.disconnect()
+      setConnectInfo(null)
+      setProbe(null)
+    })
+
+  const onCheckPackage = () =>
+    run('Check Desk package on wallet participant', async () => {
+      const live = client as GroftyClient & {
+        checkDeskPackage?: (name?: string) => Promise<{
+          reachable: boolean
+          present: boolean
+          packageIds: string[]
+          detail: string
+        }>
+        getNetworkInfo?: () => Promise<{
+          networkId?: string
+          ledgerApi?: string
+          userId?: string
+          connected: boolean
+        }>
+      }
+      if (typeof live.checkDeskPackage !== 'function') {
+        setPackageStatus('not supported in mock mode')
+        return
+      }
+      if (typeof live.getNetworkInfo === 'function') {
+        const n = await live.getNetworkInfo()
+        setNetworkInfo(
+          `network=${n.networkId ?? '?'} · ledgerApi=${n.ledgerApi ?? '(not exposed)'} · user=${n.userId ?? '?'}`,
         )
       }
+      const r = await live.checkDeskPackage()
+      setPackageStatus(r.detail)
     })
 
   const onConnect = () =>
     run('Grofty connect', async () => {
+      const live = client as GroftyClient & {
+        discoverProviders?: (ms?: number) => Promise<
+          { id: string; name: string }[]
+        >
+      }
+      if (mode === 'live' && typeof live.discoverProviders === 'function') {
+        try {
+          const announced = await live.discoverProviders(1500)
+          onLog(
+            'info',
+            announced.length
+              ? `Announced CIP-103: ${announced.map((p) => p.name || p.id).join(', ')}`
+              : 'No CIP-103 announce; trying extension postMessage handshake + configured adapters',
+          )
+        } catch {
+          /* probe is best-effort */
+        }
+      }
       const r = await client.connect()
       setConnectInfo(r)
     })
 
   const onProveRequest = () =>
-    run('Prove RequestAuthorization', async () => {
+    run('Build RequestAuthorization', async () => {
+      // The requester is CreditOfficer, but the Grofty wallet is the authority —
+      // it cannot act as CreditOfficer, so in live mode only build the command
+      // (the wallet's real action is creating AuthorizationGranted below).
       const result = await proveRequestThenGrant(client, {
+        submitRequest: mode !== 'live',
         request: {
           requester: parties.creditOfficer,
           subject: parties.borrower,
@@ -98,51 +158,79 @@ export function GroftyPanel({
       setLastRequestCmd(JSON.stringify(result.requestCommand, null, 2))
       onLog(
         'info',
-        `RequestAuthorization ${mode === 'live' ? 'prepareExecute' : 'mock'}: ${
-          result.requestResult?.correlationId ?? 'built'
-        }`,
+        mode === 'live'
+          ? 'RequestAuthorization command built (not submitted — wallet is the authority, not the requester)'
+          : `RequestAuthorization mock submit: ${
+              result.requestResult?.correlationId ?? 'built'
+            }`,
       )
     })
 
   const onProveGrant = () =>
-    run('Prove Grant (prepareExecute)', async () => {
-      const cid =
-        proposalCid.trim() ||
-        (mode === 'mock'
-          ? `mock-cid-AuthorizationProposal-${crypto.randomUUID()}`
-          : '')
-      if (!cid) {
-        throw new Error(
-          'Paste an AuthorizationProposal contract id (from ACS after create). Mock mode can leave this blank.',
-        )
-      }
-      const result = await proveRequestThenGrant(client, {
-        request: {
-          requester: parties.creditOfficer,
-          subject: parties.borrower,
-          role: 'BorrowerRole',
-          purpose: PURPOSE_LOCK,
-        },
-        grant: {
-          proposalContractId: cid,
-          args: {
+    run('Prove Grant (wallet signs AuthorizationGranted)', async () => {
+      const pasted = proposalCid.trim()
+      if (pasted) {
+        // Advanced: exercise AuthorizationProposal.Grant when a proposal cid is known.
+        const result = await proveRequestThenGrant(client, {
+          request: {
             requester: parties.creditOfficer,
-            authority: parties.authAuthority,
             subject: parties.borrower,
             role: 'BorrowerRole',
             purpose: PURPOSE_LOCK,
           },
-        },
-      })
-      setLastRequestCmd(JSON.stringify(result.requestCommand, null, 2))
-      if (result.grantPayload) {
-        onLog(
-          'ok',
-          `Grant payload mode=${result.grantPayload.mode} cid=${
-            result.grantPayload.contractId ?? '(pending ACS)'
-          } corr=${result.grantPayload.correlationId ?? '—'}`,
-        )
+          grant: {
+            proposalContractId: pasted,
+            args: {
+              requester: parties.creditOfficer,
+              authority: parties.authAuthority,
+              subject: parties.borrower,
+              role: 'BorrowerRole',
+              purpose: PURPOSE_LOCK,
+            },
+          },
+        })
+        setLastRequestCmd(JSON.stringify(result.requestCommand, null, 2))
+        if (result.grantPayload) {
+          onLog(
+            'ok',
+            `Grant payload mode=${result.grantPayload.mode} cid=${
+              result.grantPayload.contractId ?? '(pending ACS)'
+            } corr=${result.grantPayload.correlationId ?? '—'}`,
+          )
+        }
+        return
       }
+
+      // Default: authority wallet creates AuthorizationGranted directly
+      // (signatory = authority per Desk.Auth); real cid discovered via ACS.
+      const payload = await client.authorizeSubject({
+        requester: parties.creditOfficer,
+        authority: parties.authAuthority,
+        subject: parties.borrower,
+        role: 'BorrowerRole',
+        purpose: PURPOSE_LOCK,
+      })
+      setLastRequestCmd(
+        JSON.stringify(
+          {
+            templateId: 'Desk.Auth:AuthorizationGranted',
+            createArguments: {
+              authority: payload.authority,
+              subject: payload.subject,
+              role: payload.role,
+              purpose: payload.purpose,
+            },
+          },
+          null,
+          2,
+        ),
+      )
+      onLog(
+        'ok',
+        `AuthorizationGranted mode=${payload.mode} cid=${
+          payload.contractId ?? '(not returned — ACS query failed)'
+        } corr=${payload.correlationId ?? '—'}`,
+      )
     })
 
   return (
@@ -192,10 +280,17 @@ export function GroftyPanel({
               </a>{' '}
               → copy Party ID
             </li>
-            <li>Upload Desk DAR to the synchronizer your party uses</li>
             <li>
-              Probe → Connect → Prove RequestAuthorization → Grant (paste
-              proposal cid)
+              Upload the Desk DAR to your participant (admin CLI/UI — the wallet
+              cannot upload packages):{' '}
+              <a href="/cbtc-collateral-desk-0.1.0.dar" download>
+                download .dar
+              </a>
+            </li>
+            <li>
+              Probe → Connect → <strong>RequestAuthorization → Grant</strong>{' '}
+              (your wallet signs <code>AuthorizationGranted</code>; cid is
+              discovered via ACS)
             </li>
           </ol>
         </div>
@@ -205,34 +300,65 @@ export function GroftyPanel({
         <button type="button" disabled={working} onClick={() => void onProbe()}>
           Probe provider
         </button>
-        <button
-          type="button"
-          className="primary"
-          disabled={working}
-          onClick={() => void onConnect()}
-        >
-          Connect
-        </button>
+        {connectInfo?.isConnected ? (
+          <button
+            type="button"
+            disabled={working}
+            onClick={() => void onDisconnect()}
+          >
+            Disconnect
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="primary"
+            disabled={working}
+            onClick={() => void onConnect()}
+          >
+            Connect
+          </button>
+        )}
         <button
           type="button"
           disabled={working}
           onClick={() => void onProveRequest()}
         >
-          Prove RequestAuthorization
+          {mode === 'live' ? 'Build RequestAuthorization' : 'Prove RequestAuthorization'}
         </button>
+        {mode === 'live' && (
+          <>
+            <button
+              type="button"
+              disabled={working}
+              onClick={() => void onCheckPackage()}
+            >
+              Check Desk DAR
+            </button>
+            <a className="button small" href="/cbtc-collateral-desk-0.1.0.dar" download>
+              Download DAR
+            </a>
+          </>
+        )}
       </div>
+
+      {networkInfo && (
+        <p className="mono muted" style={{ marginTop: '0.5rem' }}>
+          Wallet: {networkInfo}
+        </p>
+      )}
+      {packageStatus && (
+        <p className="mono muted" style={{ marginTop: '0.5rem' }}>
+          DAR: {packageStatus}
+        </p>
+      )}
 
       <div className="form-inline">
         <label>
-          AuthorizationProposal cid (for Grant)
+          AuthorizationProposal cid (advanced — optional)
           <input
             value={proposalCid}
             onChange={(e) => setProposalCid(e.target.value)}
-            placeholder={
-              mode === 'mock'
-                ? 'optional in mock — auto-filled if blank'
-                : 'required for live Grant (from ACS)'
-            }
+            placeholder="leave blank: wallet creates AuthorizationGranted directly"
             disabled={working}
           />
         </label>
@@ -257,14 +383,23 @@ export function GroftyPanel({
           <dd>
             {connectInfo.isConnected ? 'yes' : 'no'} · {connectInfo.providerLabel}
           </dd>
-          <dt>Accounts</dt>
-          <dd>
+          <dt>Party ID</dt>
+          <dd className="mono">
             {connectInfo.accounts.length
-              ? connectInfo.accounts
-                  .map((a) => a.hint ?? a.partyId.slice(0, 24))
-                  .join(', ')
+              ? connectInfo.accounts[0].partyId
               : '(none yet — whitelist / session)'}
           </dd>
+          {connectInfo.accounts.length > 1 && (
+            <>
+              <dt>Other accounts</dt>
+              <dd>
+                {connectInfo.accounts
+                  .slice(1)
+                  .map((a) => a.partyId)
+                  .join(', ')}
+              </dd>
+            </>
+          )}
         </dl>
       )}
       {lastRequestCmd && (

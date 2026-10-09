@@ -16,6 +16,8 @@ export type DeskParties = {
   borrower: string
   liquidator: string
   authAuthority: string
+  /** LocalNet MockIssuer (mints CBTC/USDCx mock holdings). */
+  issuer: string
 }
 
 /** Workflow phases matching Desk.CreditApplication → Custody → Loan */
@@ -66,12 +68,21 @@ export type LogEntry = {
   message: string
 }
 
+/**
+ * Live Grofty authority party (the wallet that signs AuthorizationGranted).
+ * Override with VITE_GROFTY_AUTHORITY_PARTY; defaults to the HackCanton wallet.
+ */
+export const GROFTY_AUTHORITY_PARTY: string =
+  (import.meta.env?.VITE_GROFTY_AUTHORITY_PARTY as string | undefined) ??
+  'hackcanton::12200e4ef2cdd5d1dad5738efb6dc5ed0b0001834aea8b9d2d29a6537702e943eff9'
+
 export const DEFAULT_PARTIES: DeskParties = {
   creditOfficer: 'CreditOfficer::1220MOCKDESK00000000000000000000000000000',
   lender: 'Lender::1220MOCKLENDER0000000000000000000000000000000',
   borrower: 'Borrower::1220MOCKBORROWER00000000000000000000000000000',
-  liquidator: 'Liquidator::1220MOCKLIQUIDATOR0000000000000000000000000',
-  authAuthority: 'GroftyAuth::1220MOCKAUTHORITY0000000000000000000000000000',
+  liquidator: 'Liquidator::1220MOCKLIQUIDATOR0000000000000000000000000000',
+  authAuthority: GROFTY_AUTHORITY_PARTY,
+  issuer: 'MockIssuer::1220MOCKISSUER000000000000000000000000000000',
 }
 
 /** Demo defaults aligned with daml/Desk/Demo.daml happy path */

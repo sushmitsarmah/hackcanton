@@ -62,10 +62,20 @@ No API key is documented publicly for Grofty dApp connect; access is **extension
 
 | Daml template / choice | Client method | Controller |
 |------------------------|---------------|------------|
+| `AuthorizationGranted` **create** (primary live path) | `authorizeSubject` / `createGrant` → `prepareExecuteAndWait` | **authority** (Grofty wallet) |
 | `RequestAuthorization` create | `requestAuthorization` → `prepareExecute` (live) | CreditOfficer (requester) |
-| `AuthorizationProposal` create | UI/backend or `authorizeSubject` live create | CreditOfficer |
-| `AuthorizationProposal.Grant` | `grantAuthorization` → `prepareExecuteAndWait` (live) | **authority** (Grofty) |
-| `AuthorizationGranted` evidence | returned payload → pass cid into Loan/Custody | authority signatory |
+| `AuthorizationProposal` create | `buildProposalCreate` (inspection / backend) | CreditOfficer |
+| `AuthorizationProposal.Grant` | `grantAuthorization` → `prepareExecuteAndWait` (advanced) | **authority** (Grofty) |
+
+**Why direct create?** `AuthorizationGranted` has `signatory = authority` (`daml/Desk/Auth.daml:93`),
+so the Grofty wallet can create the evidence directly — no CreditOfficer proposal
+round-trip. `prepareExecuteAndWait` returns only `{tx:{commandId,payload:{updateId}}}`
+(no contract id), so `createGrant`/`authorizeSubject` then query the JSON Ledger API
+(`/v2/state/active-contracts` via `sdk.ledgerApi`) to recover the real cid. Configure
+the resource with `activeContractsResource` if your gateway differs.
+
+Bind the Daml policy to the wallet signer with `productionAuthWith authority`
+(`daml/Desk/Types.daml`) so any grant not signed by that party is rejected.
 
 Purposes (must match `Desk.Auth`):
 
@@ -74,6 +84,7 @@ Purposes (must match `Desk.Auth`):
 - `desk.add-collateral`
 - `desk.repay` (also Release)
 - `desk.liquidate` (also Seize)
+- `desk.governed-custody-release` (gated, FUTURE(DecMan))
 
 ## How to run
 
@@ -100,8 +111,14 @@ In the UI **Grofty (CIP-103)** panel:
 1. Leave **Mock** for offline desk demo (Lock/Disburse/etc. still get mock grants).
 2. Or toggle **Live** → **Probe provider** → **Connect**.
 3. **Prove RequestAuthorization** — builds CreateCommand; live submits via `prepareExecute`.
-4. Paste **AuthorizationProposal** cid (from ACS after create on a real ledger) → **RequestAuthorization → Grant** (`prepareExecuteAndWait`).
+4. **RequestAuthorization → Grant** — with the cid field **blank**, the wallet creates
+   `AuthorizationGranted` directly and the real cid is discovered via ACS. Paste a
+   proposal cid only for the advanced `AuthorizationProposal.Grant` path.
 5. Missing extension → clear `GroftyExtensionMissingError` with install / whitelist URLs (switch back to Mock to continue).
+
+**Role model:** the wallet is a single party (e.g. `hackcanton::…`). Make it the
+**authority** (`VITE_GROFTY_AUTHORITY_PARTY`, `productionAuthWith`). The
+borrower/lender/liquidator can be backend parties; only the authority needs Grofty.
 
 Live Node prove exits code 2 (no wallet picker):
 

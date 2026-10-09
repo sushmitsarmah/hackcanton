@@ -1,0 +1,33 @@
+# Local dev secrets for the collat.trade Worker (wrangler dev).
+# Copy to .dev.vars (gitignored). These are the SAME names as production:
+# set production values with `wrangler secret put <NAME>` and plain vars in wrangler.jsonc.
+
+# Which provider the assistant uses. Unset = assistant is off.
+# one of: openrouter | cloudflare | ollama-cloud | ollama | openai-compatible
+AI_PROVIDER=openrouter
+
+# Model id (leave blank for the provider default).
+# e.g. openrouter: "nvidia/nemotron-3-super-120b-a12b:free" (free, calls tools)
+#      cloudflare: "@cf/qwen/qwen3-30b-a3b-fp8"
+AI_MODEL=
+
+# ── OpenRouter ──────────────────────────────────────────────────────────────
+OPENROUTER_API_KEY=
+
+# ── Cloudflare Workers AI ────────────────────────────────────────────────────
+# Base URL is derived from the account id.
+CLOUDFLARE_ACCOUNT_ID=
+CLOUDFLARE_API_TOKEN=
+
+# ── Ollama ───────────────────────────────────────────────────────────────────
+# Local daemon needs no key. Ollama Cloud needs OLLAMA_API_KEY + a base URL.
+OLLAMA_BASE_URL=
+OLLAMA_API_KEY=
+
+# ── Any OpenAI-compatible endpoint ───────────────────────────────────────────
+AI_BASE_URL=
+AI_API_KEY=
+
+# Optional tuning
+AI_TEMPERATURE=
+AI_MAX_TOKENS=

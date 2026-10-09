@@ -56,8 +56,8 @@ template ReadyToDisburse
         borrowerAuthCid : Optional (ContractId AuthorizationGranted)
       controller lender, borrower, creditOfficer
       do
-        requireAuthWhen authPolicy.authRequired lenderAuthCid lender LenderRole purposeDisburse
-        requireAuthWhen authPolicy.authRequired borrowerAuthCid borrower BorrowerRole purposeDisburse
+        requireAuthWhen authPolicy lenderAuthCid lender LenderRole purposeDisburse
+        requireAuthWhen authPolicy borrowerAuthCid borrower BorrowerRole purposeDisburse
 
         vault <- fetch vaultCid
         assertMsg "vault parties mismatch" $
@@ -136,7 +136,7 @@ template PrepareOrigination
         borrowerAuthCid : Optional (ContractId AuthorizationGranted)
       controller borrower, creditOfficer, lender
       do
-        requireAuthWhen authPolicy.authRequired borrowerAuthCid borrower BorrowerRole purposeLock
+        requireAuthWhen authPolicy borrowerAuthCid borrower BorrowerRole purposeLock
 
         credit <- fetch acceptedTermsCid
         assertMsg "credit parties match" $
@@ -251,7 +251,7 @@ template Loan
         borrowerAuthCid : Optional (ContractId AuthorizationGranted)
       controller borrower, creditOfficer
       do
-        requireAuthWhen authPolicy.authRequired borrowerAuthCid borrower BorrowerRole purposeAddCollateral
+        requireAuthWhen authPolicy borrowerAuthCid borrower BorrowerRole purposeAddCollateral
         vault <- fetch vaultCid
         extra <- fetch extraCbtc
         assertMsg "extra must be CBTC" $ extra.asset == CBTC
@@ -304,8 +304,8 @@ template Loan
         lenderAuthCid : Optional (ContractId AuthorizationGranted)
       controller borrower, creditOfficer, lender
       do
-        requireAuthWhen authPolicy.authRequired borrowerAuthCid borrower BorrowerRole purposeRepay
-        requireAuthWhen authPolicy.authRequired lenderAuthCid lender LenderRole purposeRepay
+        requireAuthWhen authPolicy borrowerAuthCid borrower BorrowerRole purposeRepay
+        requireAuthWhen authPolicy lenderAuthCid lender LenderRole purposeRepay
 
         now <- getTime
         let debt = accruedDebt principalOutstanding accruedInterest terms.interestRate lastAccrual now
@@ -347,7 +347,7 @@ template Loan
         liquidatorAuthCid : Optional (ContractId AuthorizationGranted)
       controller liquidator, creditOfficer
       do
-        requireAuthWhen authPolicy.authRequired liquidatorAuthCid liquidator LiquidatorRole purposeLiquidate
+        requireAuthWhen authPolicy liquidatorAuthCid liquidator LiquidatorRole purposeLiquidate
 
         now <- getTime
         vault <- fetch vaultCid
@@ -375,7 +375,7 @@ template Loan
         liquidatorAuthCid : Optional (ContractId AuthorizationGranted)
       controller liquidator, creditOfficer
       do
-        requireAuthWhen authPolicy.authRequired liquidatorAuthCid liquidator LiquidatorRole purposeLiquidate
+        requireAuthWhen authPolicy liquidatorAuthCid liquidator LiquidatorRole purposeLiquidate
 
         now <- getTime
         vault <- fetch vaultCid

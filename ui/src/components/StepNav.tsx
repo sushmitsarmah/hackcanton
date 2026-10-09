@@ -53,19 +53,21 @@ type Props = {
 
 export function StepNav({ phase, current, onSelect }: Props) {
   return (
-    <nav className="step-nav" aria-label="Loan workflow steps">
-      {FLOW_STEPS.map((s) => {
+    <nav className="progress" aria-label="Loan workflow steps">
+      {FLOW_STEPS.map((s, i) => {
         const st = stepStatus(s.id, phase)
+        const label = s.short.replace(/^\d+\.\s*/, '')
         return (
-          <button
-            key={s.id}
-            type="button"
-            className={`step-pill ${st} ${current === s.id ? 'current' : ''}`}
-            onClick={() => onSelect(s.id)}
-          >
-            <span className="step-dot" aria-hidden />
-            {s.short}
-          </button>
+          <span key={s.id} style={{ display: 'contents' }}>
+            {i > 0 && <i aria-hidden />}
+            <button
+              type="button"
+              className={`stage ${st} ${current === s.id ? 'current' : ''}`}
+              onClick={() => onSelect(s.id)}
+            >
+              {i + 1} <span className="dot" aria-hidden /> {label}
+            </button>
+          </span>
         )
       })}
     </nav>

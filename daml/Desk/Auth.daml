@@ -16,6 +16,8 @@
 -- Evidence checklist / client scaffolding: integrations/bitsafe/BITSAFE.md + DecManEvidence.md
 module Desk.Auth where
 
+import Desk.Types (AuthPolicy)
+
 -- | Role that Grofty may authorize (Desk signer explicitly excluded).
 data AuthRole = BorrowerRole | LenderRole | LiquidatorRole
   deriving (Eq, Show)
@@ -176,19 +178,30 @@ requireGrantedAuthWithPurpose authCid expectedSubject expectedRole expectedPurpo
   assertMsg "AuthorizationGranted purpose mismatch" $ g.purpose == expectedPurpose
   pure g
 
+-- | Assert a grant was signed by the policy's trusted authority (when set).
+assertTrustedAuthority : AuthPolicy -> AuthorizationGranted -> Update ()
+assertTrustedAuthority policy g =
+  case policy.trustedAuthority of
+    None -> pure ()
+    Some expected ->
+      assertMsg
+        ("AuthorizationGranted authority mismatch: expected " <> show expected <> " but got " <> show g.authority)
+        (g.authority == expected)
+
 -- | Fail-closed auth gate for money-moving choices.
--- When authRequired=True: Optional must be Some and match subject/role/purpose.
+-- When policy.authRequired=True: Optional must be Some, match subject/role/purpose,
+-- and — when policy.trustedAuthority is Some p — be signed by exactly p.
 -- When authRequired=False: auth skipped (demo/test mode only — document explicitly).
 requireAuthWhen :
-    Bool
+    AuthPolicy
     -> Optional (ContractId AuthorizationGranted)
     -> Party
     -> AuthRole
     -> Text
     -> Update ()
-requireAuthWhen False _ _ _ _ = pure ()
-requireAuthWhen True None _ _ _ =
+requireAuthWhen policy _ _ _ _ | not policy.authRequired = pure ()
+requireAuthWhen _ None _ _ _ =
   abort "auth required: missing AuthorizationGranted (fail closed)"
-requireAuthWhen True (Some cid) subject role purpose = do
-  _ <- requireGrantedAuthWithPurpose cid subject role purpose
-  pure ()
+requireAuthWhen policy (Some cid) subject role purpose = do
+  g <- requireGrantedAuthWithPurpose cid subject role purpose
+  assertTrustedAuthority policy g

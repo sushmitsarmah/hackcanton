@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Credit Officer Console — CBTC Collateral Desk</title><link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="../landing/index.html"><span>✦</span> CBTC COLLATERAL DESK</a>
+  <div class="connection"><i></i> Canton <i class="cyan"></i> Grofty <b>Connected</b></div>
+  <button class="user">♙ &nbsp; Credit Officer⌄</button>
+</header>
+<main>
+  <div class="heading"><div><p class="eyebrow">CREDIT OPERATIONS</p><h1>Credit Officer Console</h1><p>Review, manage and settle bilateral CBTC loans on Canton.</p></div><button id="reset" class="button">Reset demo</button></div>
+  <div class="progress">
+    <button class="stage active" data-stage="0">1 <span>Propose</span></button><i></i><button class="stage" data-stage="1">2 <span>Accept</span></button><i></i><button class="stage" data-stage="2">3 <span>Lock</span></button><i></i><button class="stage" data-stage="3">4 <span>Disburse</span></button><i></i><button class="stage" data-stage="4">5 <span>Repay</span></button><i></i><button class="stage" data-stage="5">6 <span>Liquidate</span></button>
+  </div>
+  <section class="loan-card">
+    <div class="loan-title"><div><span class="muted">CIP-103</span> / Bilateral Loan #103 <em id="loanStatus">Proposed</em></div><div class="mode"><button class="mode-btn active">Mock</button><button class="mode-btn">Live</button><span>Grofty <b id="groftyStatus">Not connected</b></span><button id="connect" class="button small primary">Connect</button></div></div>
+    <div class="loan-data">
+      <div><label>Borrower</label><strong>Acme Capital</strong><small>0x7a3e...9f12</small></div>
+      <div><label>Lender</label><strong>Global Markets Ltd</strong><small>0x4c2d...8e76</small></div>
+      <div><label>Principal (USDCx)</label><strong>100,000</strong></div>
+      <div><label>Interest rate (annual)</label><strong>8%</strong></div>
+      <div><label>Collateral (CBTC)</label><strong>2</strong></div>
+      <div><label>LTV</label><strong>70%</strong></div>
+      <div><label>Liquidation threshold</label><strong>85%</strong></div>
+      <div><label>Term</label><strong>90 days</strong></div>
+    </div>
+  </section>
+
+  <div class="layout">
+    <section class="panel">
+      <div class="panel-title"><h2>Loan Overview</h2><span class="pill green">♧ Desk-controlled custody</span></div>
+      <div class="notice success"><div class="big-icon">♙</div><div><b>Collateral Locked</b><p id="collateralText">2 CBTC held in Desk custody. Borrower claim created.</p><a href="#">View details →</a></div></div>
+      <div class="notice"><div class="big-icon">♙</div><div><b>Authorization</b><p>Requires 2-of-3 (DecMan) <span id="authText">approval pending</span></p><button class="link-btn">View approvers</button></div></div>
+      <h3 class="subhead">Event Timeline</h3>
+      <div class="timeline">
+        <div class="event done"><b>Loan proposed</b><span>Credit officer submitted terms</span><time>Sep 25, 2026 14:32</time></div>
+        <div class="event active"><b>Approval pending</b><span>Waiting for DecMan authorization</span><time>Sep 25, 2026 14:45</time></div>
+        <div class="event"><b>Collateral lock</b><span>2 CBTC transferred to Desk custody</span><time>Sep 25, 2026 15:12</time></div>
+        <div class="event"><b>USDCx disbursement</b><span>Pending lender confirmation</span><time>—</time></div>
+        <div class="event"><b>Loan active</b><span>After full authorization and funding</span><time>—</time></div>
+      </div>
+      <button id="advance" class="button primary wide">Approve Loan <span>✓</span></button>
+    </section>
+
+    <aside>
+      <section class="panel">
+        <div class="panel-title"><h2>Position & Controls</h2><span class="pill green">♧ Desk custody</span></div>
+        <div class="control"><b>♢</b><div><strong>Collateral Custody</strong><p>2 CBTC<br><span>In custody · Not transferable</span></p><a href="#">View on Canton</a></div></div>
+        <div class="control"><b>♙</b><div><strong>Authorization <small>(DecMan)</small></strong><p>2-of-3 required<br><span>1/3 approvals received</span></p><a href="#">View details</a></div></div>
+        <div class="control"><b>♢</b><div><strong>Grofty Connection</strong><p id="groftyPanel">Not connected</p><button id="testConnection" class="link-btn">Test connection</button></div></div>
+      </section>
+      <section class="panel quick"><h2>Quick Actions</h2><button id="approveFund" class="button primary wide">Approve & Fund <span>→</span></button><button class="button wide">Request more info <span>⌄</span></button><button id="cancel" class="button danger wide">Cancel loan</button></section>
+      <section class="warning"><b>⚠ &nbsp; Liquidation (High Risk)</b><p>If health factor drops below 85%, this position can be liquidated. Ensure sufficient collateral and monitor closely.</p><button id="liquidate" class="button danger wide">⚠ &nbsp; Trigger Liquidation</button></section>
+    </aside>
+  </div>
+</main>
+<script src="app.js"></script>
+</body></html>
