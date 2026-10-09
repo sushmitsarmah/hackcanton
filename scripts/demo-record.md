@@ -14,7 +14,7 @@
 export PATH="$HOME/.daml/bin:$PATH"
 export JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home
 export PATH="$JAVA_HOME/bin:$PATH"
-cd ~/Projects/hackathons/current/cbtc-collateral-desk
+cd /path/to/cbtc-collateral-desk
 
 # Preferred: start Path A sandbox + run the Ledger API demos (happy + liquidate)
 SKIP_HEALTH=1 ./scripts/contrib-demo.sh        # expect CONTRIB_DEMO_PASS

@@ -16,7 +16,7 @@ Full scope, gates, calendar, and validation: see **[PROJECT_PLAN.md](./PROJECT_P
 
 ```bash
 export PATH="$HOME/.daml/bin:$PATH"
-cd ~/Projects/hackathons/current/cbtc-collateral-desk
+cd /path/to/cbtc-collateral-desk
 daml build
 ./scripts/run-demo.sh
 ./scripts/run-tests.sh

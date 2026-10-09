@@ -16,7 +16,7 @@ Open two terminals. Terminal A is the ledger; Terminal B is the console.
 ```bash
 export JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home
 export PATH="$JAVA_HOME/bin:$HOME/.daml/bin:$PATH"
-cd ~/Projects/hackathons/current/cbtc-collateral-desk
+cd /path/to/cbtc-collateral-desk
 
 java -version          # must print 21.x (NOT 25)
 daml build             # → .daml/dist/cbtc-collateral-desk-0.1.0.dar
@@ -37,7 +37,7 @@ curl -s http://localhost:7575/v2/state/ledger-end   # {"offset":N}
 ### Terminal B — the operator console
 
 ```bash
-cd ~/Projects/hackathons/current/cbtc-collateral-desk/ui
+cd /path/to/cbtc-collateral-desk/ui
 npm install            # first time only
 npm run dev            # → http://localhost:5173
 ```

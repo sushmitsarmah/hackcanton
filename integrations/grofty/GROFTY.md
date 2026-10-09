@@ -92,10 +92,13 @@ Purposes (must match `Desk.Auth`):
 
 ```bash
 cd integrations/grofty
-cp .env.example .env   # optional
 npm install
 npm run build
 npm run prove:mock     # prints RequestAuthorization + Grant payloads
+
+# Config: the npm scripts do NOT auto-load .env. Either export GROFTY_* vars in
+# your shell, or pass them to createGroftyClient({...}). See .env.example for the
+# names. (The UI is Vite-powered and does read ui/.env.local separately.)
 ```
 
 ### Browser live path (operator UI)

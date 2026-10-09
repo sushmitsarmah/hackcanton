@@ -64,7 +64,7 @@ Theme = **Decentralized Party / DecMan** on the Desk party (not â€œwe use CBTCâ€
 
 ```bash
 export PATH="$HOME/.daml/bin:$PATH"
-cd ~/Projects/hackathons/current/cbtc-collateral-desk
+cd /path/to/cbtc-collateral-desk
 
 # Preferred one-shot (starts Path A sandbox if needed):
 ./scripts/contrib-demo.sh
@@ -145,7 +145,7 @@ WITH_UI=1 ./scripts/run-full-demo.sh       # then record operator console
 
 ```bash
 export PATH="$HOME/.daml/bin:$PATH"
-cd ~/Projects/hackathons/current/cbtc-collateral-desk
+cd /path/to/cbtc-collateral-desk
 
 ./scripts/health-check.sh
 ./scripts/run-full-demo.sh
