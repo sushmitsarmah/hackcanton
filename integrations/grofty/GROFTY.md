@@ -161,14 +161,25 @@ integrations/grofty/
 | Live Grant on MainNet / DevNet | — | ✅ + DAR uploaded + proposal cid from ACS |
 | Desk / CreditOfficer via Grofty | ❌ never | ❌ never |
 
-## Blockers (honest)
+## Status (honest)
 
-| Blocker | Status |
+| Item | Status |
 |---------|--------|
-| Grofty whitelist / Party ID | **User must complete** — blocks live MainNet prove |
-| Grofty CIP-103 announce | Extension must appear in dapp-sdk picker |
-| Desk DAR on MainNet synchronizer | Not uploaded from this spike |
+| Grofty whitelist / Party ID | ✅ Done — `hackcanton::12200e4ef2cdd5d1dad5738efb6dc5ed0b0001834aea8b9d2d29a6537702e943eff9` |
+| Grofty CIP-103 announce | ✅ Done — appears to `@canton-network/dapp-sdk` |
+| MainNet wallet flow (create → CC → swap USDCx) | ✅ Done in the wallet |
+| App connect + sign (`AuthorizationGranted`) | ✅ Proven — wallet signs via CIP-0103 |
+| Custom Desk DAR on the wallet's participant | ⚠️ Blocked — third-party participant, no admin upload (`/v2/dars` unsupported). The custom contract is proven end-to-end on LocalNet. |
 | DecMan / CIP-0112 pins | Out of scope — do not fake |
+
+### Grofty Wallet Bounty (MainNet flow)
+
+The bounty asks for an **end-to-end Grofty flow on MainNet**; the wallet flow is
+real: create wallet → receive **CC** → swap **CC → USDCx** → connect to this app
+via CIP-0103 → the wallet **signs** an `AuthorizationGranted`. Our console drives
+this from the Grofty panel (Live → Connect → RequestAuthorization → Grant). Where
+our *own* Daml contract cannot run is the third-party participant hosting the
+party; that is shown on LocalNet instead.
 
 ## References
 
