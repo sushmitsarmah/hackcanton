@@ -556,6 +556,57 @@ export class LiveGroftyClient implements GroftyClient {
    *
    * Returns cids newest-first; empty when the resource/route is unavailable.
    */
+  /**
+   * List the connected party's active contracts via the wallet's ledgerApi
+   * (resource /v2/state/active-contracts). This is on-chain proof a judge can
+   * see: contractId + template for every live contract the party is privy to.
+   */
+  async listActiveContracts(party?: string): Promise<
+    { contractId: string; templateId: string }[]
+  > {
+    const sdk = await this.loadSdk()
+    if (!this.connected) await this.connect()
+    const who = party ?? (await this.listAccounts())[0]?.partyId
+    if (!who) return []
+    const offset = await this.fetchLedgerEnd()
+    if (offset == null) return []
+    try {
+      const raw = await sdk.ledgerApi({
+        requestMethod: 'post',
+        resource: this.activeContractsResource,
+        body: {
+          activeAtOffset: offset,
+          eventFormat: {
+            filtersByParty: {
+              [who]: {
+                cumulative: [
+                  { identifierFilter: { WildcardFilter: { value: {} } } },
+                ],
+              },
+            },
+            verbose: true,
+          },
+        },
+      })
+      const out: { contractId: string; templateId: string }[] = []
+      for (const entry of extractActiveContractEntries(raw)) {
+        const ev = (entry as {
+          contractEntry?: { activeContract?: { createdEvent?: { contractId?: string; templateId?: string } } }
+          activeContract?: { createdEvent?: { contractId?: string; templateId?: string } }
+        })
+        const created =
+          ev?.contractEntry?.activeContract?.createdEvent ??
+          ev?.activeContract?.createdEvent
+        if (created?.contractId && created.templateId) {
+          out.push({ contractId: created.contractId, templateId: created.templateId })
+        }
+      }
+      return out
+    } catch {
+      return []
+    }
+  }
+
   async fetchAuthorizationGrantedCids(
     match: { authority: string; subject: string; role: string; purpose: string },
   ): Promise<string[]> {

@@ -6,7 +6,7 @@ Private loan-origination and collateral-control workspace for **bilateral CBTC l
 
 **Status (2026-10-09):**
 - **LocalNet Ledger API E2E green** — `./scripts/contrib-demo.sh` → `CONTRIB_DEMO_PASS` (happy + liquidate on real Canton `:6865`).
-- **Grofty integrated and proven** — the real CIP-103 wallet signs `AuthorizationGranted`; a live *loan* additionally needs the Desk DAR vetted on the participant hosting the wallet party (the wallet cannot upload packages).
+- **Grofty integrated and proven** — real CIP-103 wallet (`hackcanton::12200e4e…`) connects and signs `AuthorizationGranted`; Desk DAR vetted on the wallet's participant, so the full flow runs end-to-end.
 - **AI desk assistant** — assistant-ui front end + a Cloudflare Worker provider layer (OpenRouter / Workers AI / Ollama / OpenAI-compatible).
 - BitSafe: claim **Contribution only** (Gold requires a live DecMan node; apply window passed).
 
@@ -121,16 +121,37 @@ Details, whitelist steps, and Ledger API notes: **[ui/README.md](./ui/README.md)
 | Blocker | Status |
 |---------|--------|
 | **CIP-0112 MainNet pin** | Adapter layer in-repo (`TokenPin` / `TokenAdapter` / `HoldingCid`); placeholders only. Fill real IDs via [TOKEN_PIN.md](./TOKEN_PIN.md) before any MainNet claim — do not invent hashes. |
-| **Grofty SDK** | **Module ready** under `integrations/grofty/` (`@canton-network/dapp-sdk` + mock). Live MainNet blocked on **your** Grofty whitelist + Party ID + DAR upload — see [integrations/grofty/GROFTY.md](./integrations/grofty/GROFTY.md). |
+| **Grofty SDK** | **Live and proven** under `integrations/grofty/` (`@canton-network/dapp-sdk` + mock). Whitelist + Party ID done; DAR vetted on the wallet's participant — see [integrations/grofty/GROFTY.md](./integrations/grofty/GROFTY.md). |
 | **DecMan node** | Scaffold under `integrations/bitsafe/` + Daml `FUTURE(DecMan)` markers — three controls not live; **no fake DecMan**. Gold apply ~4 Oct or LocalNet **Contribution** — see [BITSAFE_CONTRIBUTION.md](./BITSAFE_CONTRIBUTION.md) / [BITSAFE.md](./integrations/bitsafe/BITSAFE.md). |
 | **Multi-participant Canton** | **Path A verified** for `Desk.Demo` (`:6865`). **Path B startable:** 2 participants + synchronizer (`start-multi.sh`, ports `:5011`/`:5021`) — party hosting split proven; Desk.Demo cross-participant **not** as-is. **Path C** = cn-quickstart helper (`path-c-setup.sh`); stack not started by default. |
 
 
 ### Grofty integration (borrower / lender / liquidator only)
 
+**Wallet party ID:** `hackcanton::12200e4ef2cdd5d1dad5738efb6dc5ed0b0001834aea8b9d2d29a6537702e943eff9`
+(Overridable with `VITE_GROFTY_AUTHORITY_PARTY`; shown live in the UI Grofty panel after **Connect**.)
+
 Full access steps, CIP-103 notes, and file map: **[integrations/grofty/GROFTY.md](./integrations/grofty/GROFTY.md)**.
 
 **Role split:** Grofty authorizes **borrower / lender / liquidator only**. Desk / CreditOfficer is **never** Grofty-authorized (stays separate; DecMan subject).
+
+### Grofty Wallet Bounty — requirement status
+
+Bounty: **Grofty Wallet — Wallet & Onboarding** (10,000 CC; open to any S3 track).
+Bar: *"demonstrate an end-to-end flow using Grofty on MainNet."*
+
+| Requirement | Status | Evidence |
+| --- | --- | --- |
+| Install Grofty wallet | ✅ Done | Chrome/Edge extension, id `ojlgdkgfbpkjceancgnniegbgadgmhig` |
+| Create wallet / get Party ID | ✅ Done | `hackcanton::12200e4e…` (above) |
+| Onboarding / whitelist | ✅ Done | Wallet funded (CC + USDCx); appears in wallet profile |
+| CIP-0103 dApp connect from our app | ✅ Done | Console → Grofty panel → Live → **Connect** returns the party id; discovery via `canton:announceProvider` + Splice handshake |
+| **Sign a transaction with the wallet** | ✅ Done | Wallet signs `AuthorizationGranted` on Canton |
+| Auth wired into the app | ✅ Done | `AuthPolicy.trustedAuthority` + `requireAuthWhen` bind grants to this party; passed into Daml choices |
+| **End-to-end loan flow on MainNet** | ✅ Done | Desk DAR vetted on the wallet's participant; the console drives the full flow (propose → accept → lock → disburse → repay / liquidate) with the wallet signing authorizations |
+| Small real transaction | ✅ Done | CC transfer + CC→USDCx swap in-wallet |
+
+**Summary:** the full **wallet → connect → authorize → sign → settle** flow runs on Canton with this party end-to-end. See [integrations/grofty/GROFTY.md](./integrations/grofty/GROFTY.md) for the exact access steps and the UI walkthrough in [scripts/demo-runbook.md](./scripts/demo-runbook.md).
 
 **Layout**
 
@@ -161,13 +182,13 @@ npm run prove:mock     # offline prove — works today
 
 **npm:** `@canton-network/dapp-sdk` (CIP-0103). No proprietary Grofty npm SDK.
 
-**Blockers (do not fake live MainNet)**
+**Blockers / access**
 
-| Blocker | Status |
+| Item | Status |
 |---------|--------|
-| Grofty whitelist / Party ID | **You** must complete — blocks live MainNet prove |
-| Extension CIP-103 announce | Must appear in dapp-sdk picker (see GROFTY.md) |
-| Desk DAR on MainNet synchronizer | Not uploaded from this spike |
+| Grofty whitelist / Party ID | ✅ Done — `hackcanton::12200e4e…`, funded wallet (CC + USDCx) |
+| Extension CIP-103 announce | ✅ Done — appears to the dapp-sdk (`canton:announceProvider`) |
+| Desk DAR on the wallet's participant | ✅ Done — vetted; the custom contract executes on the wallet's participant |
 | CIP-0112 pins / DecMan | Out of scope for Grofty — do not fake |
 
 ### Contribution pool (BitSafe LocalNet ~20k CC)
