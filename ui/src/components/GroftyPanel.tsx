@@ -37,6 +37,9 @@ export function GroftyPanel({
   const [lastRequestCmd, setLastRequestCmd] = useState<string | null>(null)
   const [packageStatus, setPackageStatus] = useState<string | null>(null)
   const [networkInfo, setNetworkInfo] = useState<string | null>(null)
+  const [balances, setBalances] = useState<{ symbol: string; amount: string }[] | null>(
+    null,
+  )
   const [localBusy, setLocalBusy] = useState(false)
   const working = busy || localBusy
 
@@ -115,6 +118,27 @@ export function GroftyPanel({
       }
       const r = await live.checkDeskPackage()
       setPackageStatus(r.detail)
+    })
+
+  const onLoadBalances = () =>
+    run('Read wallet balances', async () => {
+      const live = client as GroftyClient & {
+        getBalances?: () => Promise<{
+          ok: boolean
+          assets: { symbol: string; amount: string }[]
+          detail: string
+        }>
+      }
+      if (typeof live.getBalances !== 'function') {
+        setError('balances not supported in mock mode')
+        return
+      }
+      const r = await live.getBalances()
+      setBalances(r.assets)
+      if (!r.ok) throw new Error(r.detail)
+      if (r.assets.length === 0) {
+        onLog('warn', r.detail)
+      }
     })
 
   const onConnect = () =>
@@ -337,6 +361,13 @@ export function GroftyPanel({
             <a className="button small" href="/cbtc-collateral-desk-0.1.0.dar" download>
               Download DAR
             </a>
+            <button
+              type="button"
+              disabled={working || !connectInfo?.isConnected}
+              onClick={() => void onLoadBalances()}
+            >
+              My balances
+            </button>
           </>
         )}
       </div>
@@ -389,6 +420,27 @@ export function GroftyPanel({
               ? connectInfo.accounts[0].partyId
               : '(none yet — whitelist / session)'}
           </dd>
+          {balances && (
+            <>
+              <dt>Balances</dt>
+              <dd>
+                {balances.length === 0 ? (
+                  <span className="muted">
+                    none read (the wallet did not return CC/USDCx/CBTC)
+                  </span>
+                ) : (
+                  <ul className="balance-list">
+                    {balances.map((b) => (
+                      <li key={b.symbol}>
+                        <span className="balance-sym">{b.symbol}</span>
+                        <span className="balance-amt">{b.amount}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </dd>
+            </>
+          )}
           {connectInfo.accounts.length > 1 && (
             <>
               <dt>Other accounts</dt>
