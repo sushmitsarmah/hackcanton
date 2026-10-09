@@ -48,6 +48,27 @@ export type GrantAuthRequest = {
   args: AuthorizationProposalArgs
 }
 
+/** Create args for Desk.Auth:AuthorizationGranted (signatory = authority). */
+export type AuthorizationGrantedArgs = {
+  authority: string
+  subject: string
+  role: AuthRole
+  purpose: DeskAuthPurpose | string
+}
+
+/**
+ * Result of a live grant: the evidence payload plus the ledger-assigned
+ * contract id discovered via ACS (prepareExecuteAndWait does not return it).
+ */
+export type GrantAuthorizationResult = {
+  payload: AuthorizationGrantedPayload
+  result?: TransactResult
+  /** Ledger contract id when ACS discovery succeeded */
+  contractId?: string
+  /** Ledger update id from prepareExecuteAndWait, when available */
+  updateId?: string
+}
+
 export type ConnectResult = {
   mode: GroftyMode
   isConnected: boolean
@@ -57,7 +78,19 @@ export type ConnectResult = {
 
 export type TransactResult = {
   mode: GroftyMode
+  /**
+   * True only when the command was handed off to the wallet. For the
+   * non-waiting prepareExecute this is a request, not a ledger confirmation;
+   * check `waited`/`updateId` for a settled transaction.
+   */
   submitted: boolean
+  /** True when prepareExecuteAndWait settled the transaction (updateId set). */
+  waited?: boolean
+  /**
+   * Ledger update id from prepareExecuteAndWait, when the call waited.
+   * prepareExecute returns null, so it is absent on the request path.
+   */
+  updateId?: string
   /** Wallet / mock correlation */
   correlationId?: string
   /** Raw wallet prepareExecute response when available */
@@ -89,10 +122,20 @@ export interface GroftyClient {
   grantAuthorization(
     req: GrantAuthRequest,
     opts?: { submit?: boolean },
-  ): Promise<{ payload: AuthorizationGrantedPayload; result?: TransactResult }>
+  ): Promise<GrantAuthorizationResult>
   /**
-   * Convenience: mock/live path that returns AuthorizationGranted evidence
-   * without requiring a prior proposal cid (mock always; live needs submit+cid).
+   * Live primary path: the authority wallet creates AuthorizationGranted directly
+   * (signatory = authority per Desk.Auth), then the ledger cid is discovered via ACS.
+   * No CreditOfficer proposal round-trip is required.
+   */
+  createGrant(
+    args: AuthorizationGrantedArgs,
+    opts?: { submit?: boolean },
+  ): Promise<GrantAuthorizationResult>
+  /**
+   * Convenience: mock/live path that returns AuthorizationGranted evidence.
+   * Live delegates to createGrant (wallet signs as authority) and resolves the
+   * real contract id via ACS discovery.
    */
   authorizeSubject(args: AuthorizationProposalArgs): Promise<AuthorizationGrantedPayload>
 }
@@ -113,4 +156,9 @@ export type GroftyClientConfig = {
   preferredProviderId?: string
   /** Mock authority party id when mode=mock */
   mockAuthorityParty?: string
+  /**
+   * JSON Ledger API v2 resource used to discover AuthorizationGranted cids
+   * after prepareExecuteAndWait. Default: /v2/state/active-contracts.
+   */
+  activeContractsResource?: string
 }

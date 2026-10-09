@@ -1,0 +1,17 @@
+{
+  "name": "collat.trade",
+  "short_name": "collat.trade",
+  "description": "Private bilateral CBTC-backed USDCx credit on Canton.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#141009",
+  "theme_color": "#141009",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

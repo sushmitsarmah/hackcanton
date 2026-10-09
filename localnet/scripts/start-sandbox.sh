@@ -33,6 +33,18 @@ if [[ "${STATIC_TIME:-1}" == "1" ]]; then
   STATIC_FLAG=(--static-time)
 fi
 
+# Logging. Default is quiet (ready + warnings). Set LOG_LEVEL=DEBUG to also show
+# command submissions / transactions (useful to watch the console drive the ledger).
+LOG_FLAG=()
+case "${LOG_LEVEL:-INFO}" in
+  DEBUG|TRACE)
+    LOG_FLAG=(--log-level-canton DEBUG --log-level-stdout INFO --log-level-root INFO)
+    ;;
+  INFO)
+    LOG_FLAG=(--log-level-canton INFO --log-level-stdout INFO)
+    ;;
+esac
+
 echo "== starting Canton sandbox =="
 echo "  JAVA_HOME=${JAVA_HOME:-"(unset)"}"
 echo "  Ledger API  : ${LEDGER_HOST}:${LEDGER_PORT}"
@@ -48,6 +60,7 @@ CMD=(java --add-opens=java.base/java.lang=ALL-UNNAMED
   --admin-api-port "$ADMIN_API_PORT"
   --json-api-port "$JSON_API_PORT"
   "${STATIC_FLAG[@]}"
+  "${LOG_FLAG[@]}"
   --dar "$DAR")
 
 if [[ "${BACKGROUND:-0}" == "1" ]]; then

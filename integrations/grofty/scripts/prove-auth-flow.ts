@@ -98,7 +98,7 @@ async function main(): Promise<void> {
     },
   ]
 
-  console.log('\n[2–3] AuthorizationProposal → Grant (mock authority signs):')
+  console.log('\n[2–3] Authority signs AuthorizationGranted (mock authority):')
   for (const g of grants) {
     const args: AuthorizationProposalArgs = {
       requester,
@@ -110,18 +110,20 @@ async function main(): Promise<void> {
     if (client instanceof MockGroftyClient) {
       console.log('\n  Proposal create:', JSON.stringify(client.buildProposalCreate(args)))
     }
+    // Authority wallet creates AuthorizationGranted directly (signatory = authority).
     const payload = await client.authorizeSubject(args)
     console.log('  AuthorizationGranted payload:', JSON.stringify(payload, null, 2))
   }
 
   console.log('\n=== Prove complete (mock) ===')
-  console.log('Offline: mock RequestAuthorization → Grant works without extension.')
+  console.log('Offline: authority grant create works without extension.')
   console.log('Needs whitelist / extension:')
   console.log('  1. Install Grofty (https://grofty.cc/download) id ojlgdkgfbpkjceancgnniegbgadgmhig')
   console.log('  2. Whitelist onboarding (https://grofty.cc/docs/quick-start) → copy Party ID')
   console.log('  3. Upload Desk DAR to target synchronizer')
-  console.log('  4. UI: Live mode → Connect → Prove RequestAuthorization → Grant (prepareExecute)')
-  console.log('  5. Pass AuthorizationGranted cid into Loan/Custody choices')
+  console.log('  4. UI: Live mode → Connect → RequestAuthorization → Grant')
+  console.log('     (wallet creates AuthorizationGranted; cid discovered via ACS)')
+  console.log('  5. Daml policy: productionAuthWith authority → binds grants to the wallet signer')
 
   await client.disconnect()
 }

@@ -1,15 +1,18 @@
 import {
+  buildAuthorizationGrantedCreate,
   buildAuthorizationProposalCreate,
   buildGrantExercise,
   buildRequestAuthorizationCreate,
   DEFAULT_AUTH_MODULE,
 } from './commands.js'
-import { newCorrelationId, newId } from './id.js'
+import { newCorrelationId } from './id.js'
 import type {
+  AuthorizationGrantedArgs,
   AuthorizationGrantedPayload,
   AuthorizationProposalArgs,
   ConnectResult,
   GrantAuthRequest,
+  GrantAuthorizationResult,
   GroftyClient,
   GroftyClientConfig,
   RequestAuthorizationArgs,
@@ -90,18 +93,19 @@ export class MockGroftyClient implements GroftyClient {
   async grantAuthorization(
     req: GrantAuthRequest,
     opts?: { submit?: boolean },
-  ): Promise<{ payload: AuthorizationGrantedPayload; result?: TransactResult }> {
+  ): Promise<GrantAuthorizationResult> {
     const templateId =
       req.proposalTemplateId ?? `${this.authModuleId}:AuthorizationProposal`
     const command = buildGrantExercise(req.proposalContractId, templateId)
     const correlationId = newCorrelationId('mock-grant')
+    const contractId = `mock-cid-AuthorizationGranted-${correlationId}`
     const payload: AuthorizationGrantedPayload = {
       authority: req.args.authority || this.authority,
       subject: req.args.subject,
       role: req.args.role,
       purpose: req.args.purpose,
       correlationId,
-      contractId: `mock-cid-AuthorizationGranted-${correlationId}`,
+      contractId,
       mode: 'mock',
     }
     let result: TransactResult | undefined
@@ -113,22 +117,54 @@ export class MockGroftyClient implements GroftyClient {
         raw: { command, payload },
       }
     }
-    return { payload, result }
+    return { payload, result, contractId }
+  }
+
+  /**
+   * Mock direct create of AuthorizationGranted (mirrors the live primary path,
+   * where the authority wallet is the signatory).
+   */
+  async createGrant(
+    args: AuthorizationGrantedArgs,
+    opts?: { submit?: boolean },
+  ): Promise<GrantAuthorizationResult> {
+    const command = buildAuthorizationGrantedCreate(
+      { ...args, authority: args.authority || this.authority },
+      `${this.authModuleId}:AuthorizationGranted`,
+    )
+    const correlationId = newCorrelationId('mock-grant')
+    const contractId = `mock-cid-AuthorizationGranted-${correlationId}`
+    const payload: AuthorizationGrantedPayload = {
+      authority: args.authority || this.authority,
+      subject: args.subject,
+      role: args.role,
+      purpose: args.purpose,
+      correlationId,
+      contractId,
+      mode: 'mock',
+    }
+    let result: TransactResult | undefined
+    if (opts?.submit !== false) {
+      result = {
+        mode: 'mock',
+        submitted: true,
+        correlationId,
+        raw: { command, payload },
+      }
+    }
+    return { payload, result, contractId }
   }
 
   async authorizeSubject(
     args: AuthorizationProposalArgs,
   ): Promise<AuthorizationGrantedPayload> {
-    const proposalCid = `mock-cid-AuthorizationProposal-${newId()}`
-    const { payload, result } = await this.grantAuthorization({
-      proposalContractId: proposalCid,
-      args: { ...args, authority: args.authority || this.authority },
+    const { payload } = await this.createGrant({
+      authority: args.authority || this.authority,
+      subject: args.subject,
+      role: args.role,
+      purpose: args.purpose,
     })
-    return {
-      ...payload,
-      correlationId: result?.correlationId,
-      contractId: payload.contractId,
-    }
+    return payload
   }
 
   /** Expose proposal create for prove script inspection */

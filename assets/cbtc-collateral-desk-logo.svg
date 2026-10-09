@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" fill="none">
+  <rect width="1024" height="1024" rx="192" fill="#0B1220"/>
+  <!-- soft ring -->
+  <circle cx="512" cy="512" r="340" stroke="#1E293B" stroke-width="28"/>
+  <!-- gold outer coin ring -->
+  <circle cx="512" cy="420" r="168" stroke="#E8C47A" stroke-width="28"/>
+  <circle cx="512" cy="420" r="118" stroke="#E8C47A" stroke-width="14" opacity="0.55"/>
+  <!-- teal vault body -->
+  <rect x="356" y="500" width="312" height="260" rx="36" fill="#14B8A6"/>
+  <!-- vault door -->
+  <rect x="404" y="548" width="216" height="164" rx="24" fill="#0B1220"/>
+  <!-- lock cylinder -->
+  <circle cx="512" cy="630" r="34" fill="#E8C47A"/>
+  <rect x="498" y="630" width="28" height="52" rx="8" fill="#E8C47A"/>
+  <!-- CBTC mark: stylized B-bar inside coin (generic, not trademark) -->
+  <path d="M470 360 h52 c36 0 58 16 58 44 0 18-10 32-28 38 22 6 36 22 36 46 0 32-26 50-66 50 h-52 z
+           M508 392 v52 h14 c16 0 26-8 26-26s-10-26-26-26h-14z
+           M508 468 v48 h18 c18 0 30-10 30-28s-12-20-30-20h-18z" fill="#E8C47A"/>
+</svg>

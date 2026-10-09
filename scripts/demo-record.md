@@ -1,8 +1,10 @@
-# Demo recording guide — CBTC Collateral Desk (< 5 minutes)
+# Demo recording guide — collat.trade / CBTC Collateral Desk (< 5 minutes)
 
-**Goal:** one continuous recording of a bilateral CBTC loan on Canton: propose → accept → lock CBTC → disburse USDCx → **repay** (happy) **and** a second pass (or cut) for **liquidate**. Target wall time **under 5 minutes** of on-camera demo (prep before record).
+**Goal:** one continuous recording of a bilateral CBTC loan on Canton: propose → accept → lock CBTC → disburse USDCx → **repay** (happy) **and** **liquidate**, plus the AI desk assistant. Target wall time **under 5 minutes** of on-camera demo (prep before record).
 
 **Narrate:** private bilateral desk (not a money-market pool). Desk holds CBTC custody; lender prefunds USDCx; Grofty = borrower/lender/liquidator auth; DecMan = Desk party (do not fake live Gold).
+
+> Naming: the product is **collat.trade** (hosted at https://collat.trade). The repo/package name stays `cbtc-collateral-desk`.
 
 ---
 
@@ -10,38 +12,39 @@
 
 ```bash
 export PATH="$HOME/.daml/bin:$PATH"
+export JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home
+export PATH="$JAVA_HOME/bin:$PATH"
 cd ~/Projects/hackathons/current/cbtc-collateral-desk
 
-# Ide-ledger dry-run + health + shot-list reminder (default):
-./scripts/prep-demo-record.sh
+# Preferred: start Path A sandbox + run the Ledger API demos (happy + liquidate)
+SKIP_HEALTH=1 ./scripts/contrib-demo.sh        # expect CONTRIB_DEMO_PASS
 
+# Or the recording-prep wrapper (health + demos + shot-list reminder):
+./scripts/prep-demo-record.sh
 # Faster if tests/npm already green:
 # SKIP_DAML_TEST=1 SKIP_NPM=1 ./scripts/prep-demo-record.sh
-
-# Ledger API Path A (starts sandbox if START_SANDBOX=1):
-# START_SANDBOX=1 MODE=ledger ./scripts/prep-demo-record.sh
 ```
 
-Then **hit Record** in your screen recorder and re-run `./scripts/run-full-demo.sh` (or `MODE=ledger …`) on camera.
+Then **hit Record** and re-run the demos on camera.
 
 ### Checklist before Record
 
 - [ ] Terminal font readable; hide `.env` / secrets
 - [ ] Narrate bilateral desk (not a money-market pool)
 - [ ] Do not claim live Grofty MainNet / live DecMan / invent CIP-0112 pins
-- [ ] Path A sandbox only if using `MODE=ledger`
-- [ ] Path B is optional aside only (multi-node bring-up) — not required for Desk.Demo video
-- [ ] Path C only if cn-quickstart already running (`./localnet/scripts/path-c-setup.sh` documents; heavy)
+- [ ] Path A sandbox running if using `MODE=ledger` (`./localnet/scripts/status.sh`)
+- [ ] Reset between happy and liquidate (`RESET_BETWEEN=1`) so party names don't collide
+- [ ] Path B is an optional aside only (multi-node bring-up) — not required for Desk.Demo video
 
 Have ready:
 
 | Asset | Path / note |
 | --- | --- |
-| Repo README + PROJECT_PLAN | One-sentence track pitch |
-| Operator UI | `cd ui && npm run dev` → http://localhost:5173 |
-| Ide-ledger demos | `./scripts/run-demo.sh` or `./scripts/run-full-demo.sh` |
-| Ledger API demos | sandbox up → `MODE=ledger ./scripts/run-full-demo.sh` |
-| Grofty panel | Mock mode for offline; Live only if whitelist ready |
+| Hosted console + assistant | https://collat.trade (mock walkthrough + live Grofty signing + AI) |
+| Operator UI (local) | `cd ui && npm run dev` → http://localhost:5173 |
+| Ledger API demos | sandbox up → `MODE=ledger RESET_BETWEEN=1 ./scripts/run-full-demo.sh` |
+| Contribution evidence | `SKIP_HEALTH=1 ./scripts/contrib-demo.sh` → `CONTRIB_DEMO_PASS` |
+| Grofty panel | Mock for the LocalNet story; Live only to show the **real wallet signs** |
 
 ---
 
@@ -49,52 +52,48 @@ Have ready:
 
 ### 0. Title card (~10 s)
 
-- **CBTC Collateral Desk** — HackCanton S3 Financial Applications
-- Bilateral CBTC collateralized lending on Canton (LocalNet / sandbox)
+- **collat.trade** — private bilateral CBTC credit on Canton. HackCanton S3, Financial Applications.
+- Same desk is the BitSafe **Contribution** integration (LocalNet app + custom Daml).
 
-### 1. Happy path — repay (~2 min)
+### 1. Happy path — repay (~1.5 min)
 
-**Preferred on camera (pick one):**
-
-**A — Ide-ledger (reliable, no sandbox):**
+**A — Ledger API (strongest Canton proof, recommended):**
 
 ```bash
-./scripts/run-full-demo.sh
-# or: ./scripts/run-demo.sh
+# Terminal 1: sandbox already running (./scripts/contrib-demo.sh started it)
+MODE=ledger RESET_BETWEEN=1 ./scripts/run-full-demo.sh
 ```
 
-Call out terminal lines as they pass: parties → terms → lock → disburse → accrue (if shown) → repay → collateral release.
+Call out terminal lines as they pass: parties → terms → lock → disburse → repay → collateral release. This is a **real Canton Ledger API** on `:6865`, not `--ide-ledger`.
 
 **B — Operator console (visual):**
 
-1. Open UI (`npm run dev`).
+1. Open the UI (hosted https://collat.trade/#/desk or `npm run dev`).
 2. Propose loan (CreditOfficer) → lender accept → borrower accept.
-3. Lock CBTC into Desk vault.
-4. Disburse USDCx.
-5. Repay → show ReleaseToBorrower / vault cleared.
-6. (Optional) Grofty panel: Mock → Prove RequestAuthorization (do not claim MainNet live unless connected).
+3. Lock CBTC into Desk vault → Disburse USDCx → Repay (show vault cleared).
 
-**C — Ledger API (strongest Canton proof):**
+### 2. AI desk assistant (~45 s)
 
-```bash
-# Terminal 1: sandbox already running
-MODE=ledger ./scripts/run-full-demo.sh
-# RESET_BETWEEN=1 is default in this mode (fresh parties between happy/liquidate)
-```
+On https://collat.trade/#/desk → bottom-right **✦** launcher:
 
-### 2. Liquidate path (~1.5 min)
+- Ask: *"What is the desk state?"* → it calls `get_desk_state` and answers.
+- Ask: *"Explain the current health factor."* → it explains HF/LTV.
+- Ask: *"Propose a 100,000 USDCx loan against 2 CBTC."* → it returns a **confirmation card**; show that it **does not run** until you confirm.
+- Switch model in the header (provider · model dropdown) to show OpenRouter / Workers AI switching.
 
-Same runner already executes `Desk.Demo:runLiquidatePath` after happy on ide-ledger.
+Narrate: the assistant **proposes**; the operator confirms — the model can never change state on its own.
 
-On UI: drive HF/maturity breach → **LiquidateFast** → SeizeToLiquidator. Narrate:
+### 3. Liquidate path (~1 min)
+
+Same runner executes `Desk.Demo:runLiquidatePath` after happy (sandbox resets between). On the UI: stress the mark → HF < 1 → **LiquidateFast** → seize. Narrate:
 
 - **Fast path:** pre-authorized liquidator; no DecMan threshold wait.
 - **Gated path:** `RequestGovernedCustodyRelease` — fail-closed without live DecMan (do not fake).
 
-### 3. Closing (~30–45 s)
+### 4. Closing (~30–45 s)
 
-- Point at README production readiness / honesty table (CIP-0112 pin, Grofty whitelist, DecMan Gold blockers).
-- Mention BitSafe three controls + `integrations/bitsafe/DecManEvidence.md` if claiming Decentralizing Apps.
+- Point at README production readiness / honesty table (CIP-0112 pin, Grofty participant-upload, DecMan Gold blockers).
+- BitSafe: `CONTRIB_DEMO_PASS` + `integrations/bitsafe/DecManEvidence.md` (claim **Contribution only**).
 - Stop recording. Do **not** invent package hashes or fake MainNet.
 
 ---
@@ -104,40 +103,40 @@ On UI: drive HF/maturity breach → **LiquidateFast** → SeizeToLiquidator. Nar
 | Segment | Target |
 | --- | --- |
 | Title | 0:10 |
-| Happy (lock → disburse → repay) | 2:00 |
-| Liquidate | 1:30 |
+| Happy (real Ledger API) | 1:30 |
+| AI assistant | 0:45 |
+| Liquidate | 1:00 |
 | Honest blockers / tracks | 0:40 |
-| **Total** | **≈ 4:20** |
+| **Total** | **≈ 4:05** |
 
-If over time: cut UI and run **ide-ledger only** (`./scripts/run-full-demo.sh`).
+If over time: show the hosted console for the AI + happy path and cut to the terminal only for liquidate.
 
 ---
 
 ## Commands cheat-sheet
 
 ```bash
-# One-command prep for recording
-./scripts/prep-demo-record.sh
+# Contribution evidence (starts sandbox, happy + liquidate on Ledger API)
+SKIP_HEALTH=1 ./scripts/contrib-demo.sh     # CONTRIB_DEMO_PASS
 
-# Full ide-ledger happy + liquidate
+# Full Ledger API happy + liquidate
+MODE=ledger RESET_BETWEEN=1 ./scripts/run-full-demo.sh
+
+# Ide-ledger (no sandbox)
 ./scripts/run-full-demo.sh
 
-# Ledger API (sandbox required)
-MODE=ledger ./scripts/run-full-demo.sh
-START_SANDBOX=1 MODE=ledger ./scripts/prep-demo-record.sh
+# UI
+cd ui && npm run dev                         # http://localhost:5173
 
-# UI after demos
-WITH_UI=1 ./scripts/run-full-demo.sh   # starts Vite at end
-# or: cd ui && npm run dev
+# Sandbox control
+./localnet/scripts/start-sandbox.sh          # foreground
+BACKGROUND=1 ./localnet/scripts/start-sandbox.sh
+./localnet/scripts/status.sh
+./localnet/scripts/stop-sandbox.sh
 
-# Tests only
+# Tests + pre-submit health
 ./scripts/run-tests.sh
-
-# Pre-submit health
 ./scripts/health-check.sh
-
-# Path B multi-node (optional aside — not Desk.Demo)
-# BACKGROUND=1 ./localnet/scripts/start-multi.sh && ./localnet/scripts/proof-multi.sh
 ```
 
 ---
@@ -147,5 +146,6 @@ WITH_UI=1 ./scripts/run-full-demo.sh   # starts Vite at end
 - Pool-style money market UX (Alpend/ACME lookalike).
 - Minting USDCx.
 - CBTC as traditional RWA.
-- Live Grofty MainNet or live DecMan Gold without real evidence.
+- Live Grofty MainNet loan, or live DecMan Gold, without real evidence.
 - Invented CIP-0112 package / instrument hashes.
+- The **AI assistant does not sign or submit** anything by itself — always show the confirmation step.

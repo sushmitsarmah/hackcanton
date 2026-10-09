@@ -23,3 +23,6 @@ localnet/logs/
 
 # Path C cn-quickstart clone (large)
 localnet/cn-quickstart/
+
+# Canton runtime log output (slipped past *.log as .gz)
+log/

@@ -40,18 +40,29 @@ isPositiveMoney m = m > 0.0
 -- | Auth policy for money-moving choices.
 -- Production default: authRequired = True (fail closed if AuthorizationGranted missing/wrong).
 -- Demo/test may set False only when explicitly documenting auth-optional mode.
+--
+-- trustedAuthority: when Some p, every AuthorizationGranted must be signed by p
+-- (the Grofty authority wallet). This closes the self-grant hole where any party
+-- could create AuthorizationGranted and satisfy the money-moving gates.
 data AuthPolicy = AuthPolicy
   with
     authRequired : Bool
+    trustedAuthority : Optional Party
   deriving (Eq, Show)
 
 -- | Production default — mandatory Grofty-style auth on money-moving choices.
+-- trustedAuthority defaults to None for backward compatibility; set it to the
+-- Grofty authority party (e.g. hackcanton::…) to bind grants to that signer.
 productionAuth : AuthPolicy
-productionAuth = AuthPolicy with authRequired = True
+productionAuth = AuthPolicy with authRequired = True, trustedAuthority = None
+
+-- | Production auth bound to a specific authority party (recommended for live).
+productionAuthWith : Party -> AuthPolicy
+productionAuthWith authority = AuthPolicy with authRequired = True, trustedAuthority = Some authority
 
 -- | Explicit auth-optional mode for tightly scoped demos/tests. Prefer granting auth instead.
 demoAuthOptional : AuthPolicy
-demoAuthOptional = AuthPolicy with authRequired = False
+demoAuthOptional = AuthPolicy with authRequired = False, trustedAuthority = None
 
 -- | Fixed simple-interest bilateral loan terms (per-loan, not pool-wide).
 data LoanTerms = LoanTerms

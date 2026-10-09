@@ -11,16 +11,20 @@ import {
   GROFTY_QUICKSTART_URL,
   PURPOSE_ADD_COLLATERAL,
   PURPOSE_DISBURSE,
+  PURPOSE_GOVERNED_CUSTODY_RELEASE,
   PURPOSE_LIQUIDATE,
   PURPOSE_LOCK,
   PURPOSE_REPAY,
   createGroftyClient,
   detectCip103Provider,
   formatGroftyError,
+  requestAnnouncedProviders,
+  type AnnouncedProvider,
   type AuthorizationGrantedPayload,
   type AuthorizationProposalArgs,
   type ConnectResult,
   type GrantAuthRequest,
+  type GrantAuthorizationResult,
   type GroftyClient,
   type GroftyMode,
   type RequestAuthorizationArgs,
@@ -33,20 +37,24 @@ export {
   PURPOSE_ADD_COLLATERAL,
   PURPOSE_REPAY,
   PURPOSE_LIQUIDATE,
+  PURPOSE_GOVERNED_CUSTODY_RELEASE,
   GROFTY_EXTENSION_ID,
   GROFTY_PROVIDER_ID,
   GROFTY_INSTALL_URL,
   GROFTY_QUICKSTART_URL,
   detectCip103Provider,
+  requestAnnouncedProviders,
   formatGroftyError,
   createGroftyClient,
 }
 
 export type {
+  AnnouncedProvider,
   AuthorizationGrantedPayload,
   AuthorizationProposalArgs,
   ConnectResult,
   GrantAuthRequest,
+  GrantAuthorizationResult,
   GroftyClient,
   GroftyMode,
   RequestAuthorizationArgs,
@@ -59,6 +67,7 @@ export type DeskAuthPurpose =
   | typeof PURPOSE_ADD_COLLATERAL
   | typeof PURPOSE_REPAY
   | typeof PURPOSE_LIQUIDATE
+  | typeof PURPOSE_GOVERNED_CUSTODY_RELEASE
 
 export type AuthRole = 'BorrowerRole' | 'LenderRole' | 'LiquidatorRole'
 
@@ -98,6 +107,8 @@ export async function proveRequestThenGrant(
   client: GroftyClient,
   opts: {
     request: RequestAuthorizationArgs
+    /** When false, build the RequestAuthorization command without submitting. */
+    submitRequest?: boolean
     /** When set, exercises Grant via prepareExecuteAndWait (live) or mock grant. */
     grant?: GrantAuthRequest
   },
@@ -107,7 +118,9 @@ export async function proveRequestThenGrant(
   grantPayload?: AuthorizationGrantedPayload
   grantResult?: TransactResult
 }> {
-  const req = await client.requestAuthorization(opts.request)
+  const req = await client.requestAuthorization(opts.request, {
+    submit: opts.submitRequest ?? true,
+  })
   if (!opts.grant) {
     return { requestCommand: req.command, requestResult: req.result }
   }

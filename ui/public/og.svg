@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" fill="none">
+  <defs>
+    <linearGradient id="amber" x1="80" y1="40" x2="520" y2="600" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FCD34D"/>
+      <stop offset="0.55" stop-color="#F5B544"/>
+      <stop offset="1" stop-color="#D97706"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.2" cy="0.1" r="0.7">
+      <stop stop-color="#F5B544" stop-opacity="0.20"/>
+      <stop offset="1" stop-color="#F5B544" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="1200" height="630" fill="#141009"/>
+  <rect width="1200" height="630" fill="url(#glow)"/>
+  <rect x="0.5" y="0.5" width="1199" height="629" stroke="#3a2f1f"/>
+
+  <!-- brand row -->
+  <g transform="translate(80,72)">
+    <rect width="56" height="56" rx="14" fill="#1c1710"/>
+    <circle cx="28" cy="28" r="15.5" stroke="url(#amber)" stroke-width="3"/>
+    <circle cx="28" cy="28" r="9.5" stroke="#F5B544" stroke-opacity="0.45" stroke-width="1.4"/>
+    <path d="M24 27.5v-2.8a4 4 0 0 1 8 0v2.8" stroke="url(#amber)" stroke-width="2.2" stroke-linecap="round"/>
+    <rect x="22.5" y="27.5" width="11" height="9" rx="2.2" fill="url(#amber)"/>
+    <text x="76" y="34" fill="#f7f1e6" font-family="Inter, Segoe UI, sans-serif" font-size="26" font-weight="800" letter-spacing="1.5">COLLAT.TRADE</text>
+  </g>
+
+  <!-- headline -->
+  <text x="80" y="300" fill="#f7f1e6" font-family="Inter, Segoe UI, sans-serif" font-size="62" font-weight="800" letter-spacing="-1.5">Private CBTC Credit,</text>
+  <text x="80" y="372" fill="#f5b544" font-family="Inter, Segoe UI, sans-serif" font-size="62" font-weight="800" letter-spacing="-1.5">Built for Bilateral Lending</text>
+  <text x="80" y="428" fill="#c2b39a" font-family="Inter, Segoe UI, sans-serif" font-size="24">Named counterparties · Desk-controlled collateral custody · Governed settlement</text>
+
+  <!-- footer chips -->
+  <g font-family="Inter, Segoe UI, sans-serif" font-size="18" fill="#e8c98a">
+    <rect x="80" y="490" width="150" height="44" rx="22" fill="#201b13" stroke="#54452e"/>
+    <text x="112" y="518">Canton</text>
+    <rect x="246" y="490" width="150" height="44" rx="22" fill="#201b13" stroke="#54452e"/>
+    <text x="278" y="518">Grofty</text>
+    <rect x="412" y="490" width="200" height="44" rx="22" fill="#201b13" stroke="#54452e"/>
+    <text x="444" y="518">DecMan governed</text>
+  </g>
+</svg>

@@ -72,7 +72,7 @@ template CollateralVault
         borrowerAuthCid : Optional (ContractId AuthorizationGranted)
       controller borrower, creditOfficer
       do
-        requireAuthWhen authPolicy.authRequired borrowerAuthCid borrower BorrowerRole purposeAddCollateral
+        requireAuthWhen authPolicy borrowerAuthCid borrower BorrowerRole purposeAddCollateral
         extra <- fetch extraCbtc
         assertMsg "extra must be CBTC" $ extra.asset == CBTC
         assertMsg "borrower owns extra CBTC" $ extra.owner == borrower
@@ -99,7 +99,7 @@ template CollateralVault
         borrowerAuthCid : Optional (ContractId AuthorizationGranted)
       controller creditOfficer, borrower
       do
-        requireAuthWhen authPolicy.authRequired borrowerAuthCid borrower BorrowerRole purposeRepay
+        requireAuthWhen authPolicy borrowerAuthCid borrower BorrowerRole purposeRepay
         h <- fetch lockedCbtc
         assertMsg "Desk must own locked CBTC before release" $ h.owner == creditOfficer
         assertMsg "release asset must be CBTC" $ h.asset == CBTC
@@ -116,7 +116,7 @@ template CollateralVault
         liquidatorAuthCid : Optional (ContractId AuthorizationGranted)
       controller creditOfficer, liquidator
       do
-        requireAuthWhen authPolicy.authRequired liquidatorAuthCid liquidator LiquidatorRole purposeLiquidate
+        requireAuthWhen authPolicy liquidatorAuthCid liquidator LiquidatorRole purposeLiquidate
         h <- fetch lockedCbtc
         assertMsg "Desk must own locked CBTC before seize" $ h.owner == creditOfficer
         assertMsg "seize asset must be CBTC" $ h.asset == CBTC
@@ -210,7 +210,7 @@ template LockCollateralRequest
         borrowerAuthCid : Optional (ContractId AuthorizationGranted)
       controller borrower, creditOfficer
       do
-        requireAuthWhen authPolicy.authRequired borrowerAuthCid borrower BorrowerRole purposeLock
+        requireAuthWhen authPolicy borrowerAuthCid borrower BorrowerRole purposeLock
         holding <- fetch borrowerCbtc
         assertMsg "holding must be CBTC" $ holding.asset == CBTC
         assertMsg "borrower must own CBTC holding" $ holding.owner == borrower

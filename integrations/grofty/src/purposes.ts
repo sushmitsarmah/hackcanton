@@ -8,6 +8,9 @@ export const PURPOSE_DISBURSE = 'desk.disburse' as const
 export const PURPOSE_ADD_COLLATERAL = 'desk.add-collateral' as const
 export const PURPOSE_REPAY = 'desk.repay' as const
 export const PURPOSE_LIQUIDATE = 'desk.liquidate' as const
+/** Gated (non-emergency) custody release — FUTURE(DecMan) only (see Auth.daml). */
+export const PURPOSE_GOVERNED_CUSTODY_RELEASE =
+  'desk.governed-custody-release' as const
 
 /** Release/Seize share repay/liquidate purposes (see Auth.daml). */
 export const PURPOSE_RELEASE = PURPOSE_REPAY
@@ -19,6 +22,7 @@ export type DeskAuthPurpose =
   | typeof PURPOSE_ADD_COLLATERAL
   | typeof PURPOSE_REPAY
   | typeof PURPOSE_LIQUIDATE
+  | typeof PURPOSE_GOVERNED_CUSTODY_RELEASE
 
 export const ALL_DESK_PURPOSES: readonly DeskAuthPurpose[] = [
   PURPOSE_LOCK,
@@ -26,6 +30,7 @@ export const ALL_DESK_PURPOSES: readonly DeskAuthPurpose[] = [
   PURPOSE_ADD_COLLATERAL,
   PURPOSE_REPAY,
   PURPOSE_LIQUIDATE,
+  PURPOSE_GOVERNED_CUSTODY_RELEASE,
 ] as const
 
 export type AuthRole = 'BorrowerRole' | 'LenderRole' | 'LiquidatorRole'
