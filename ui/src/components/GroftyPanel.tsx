@@ -117,42 +117,6 @@ export function GroftyPanel({
       setPackageStatus(r.detail)
     })
 
-  const onShowContracts = () =>
-    run('List on-chain contracts for the wallet party', async () => {
-      const live = client as GroftyClient & {
-        listActiveContracts?: (
-          party?: string,
-        ) => Promise<{ contractId: string; templateId: string }[]>
-      }
-      if (typeof live.listActiveContracts !== 'function') {
-        setPackageStatus('not supported in mock mode')
-        return
-      }
-      setPackageStatus('reading active contracts…')
-      const list = await live.listActiveContracts()
-      if (list.length === 0) {
-        setPackageStatus(
-          'No active contracts visible for this party (or the wallet ledgerApi is unavailable).',
-        )
-        return
-      }
-      const byTemplate = new Map<string, number>()
-      for (const c of list) {
-        const t = c.templateId.split(':').slice(-2).join(':')
-        byTemplate.set(t, (byTemplate.get(t) ?? 0) + 1)
-      }
-      const summary = [...byTemplate.entries()]
-        .map(([t, n]) => `${t}×${n}`)
-        .join(', ')
-      setPackageStatus(
-        `${list.length} active contract(s) on-chain: ${summary}. First cid ${list[0].contractId.slice(0, 16)}…`,
-      )
-      onLog('ok', `On-chain contracts for party: ${list.length}`)
-      for (const c of list.slice(0, 8)) {
-        onLog('info', `• ${c.templateId.split(':').slice(-2).join(':')} — ${c.contractId.slice(0, 20)}…`)
-      }
-    })
-
   const onConnect = () =>
     run('Grofty connect', async () => {
       const live = client as GroftyClient & {
@@ -373,13 +337,6 @@ export function GroftyPanel({
             <a className="button small" href="/cbtc-collateral-desk-0.1.0.dar" download>
               Download DAR
             </a>
-            <button
-              type="button"
-              disabled={working || !connectInfo?.isConnected}
-              onClick={() => void onShowContracts()}
-            >
-              Show on-chain contracts
-            </button>
           </>
         )}
       </div>
