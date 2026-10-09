@@ -1,7 +1,7 @@
 # CBTC Collateral Desk — HackCanton League Season 3 Project Plan
 
 **Last locked:** 2026-09-25 (bilateral positioning 2026-09-25; repo path 2026-09-29)  
-**Repo:** `~/Projects/hackathons/current/cbtc-collateral-desk`  
+**Repo:** the `cbtc-collateral-desk` checkout (repo root)  
 **Separate from:** multi-chain USDC wallet / invoicing / trading app (Arbitrum / Solana / Monad). Do not merge codebases.
 
 ---
@@ -222,8 +222,10 @@ Expected Daml / project shape:
 
 ## Implementation status
 
-**Updated:** 2026-09-29 (IST) — Grofty **browser live path** wired (Vite-safe `./browser` entry, UI mock/live toggle, RequestAuthorization → Grant via prepareExecute, clear extension-missing errors). Prior: BitSafe DecMan scaffolding; Daml hardening; Grofty CIP-103 client + mock prove.
+**Updated:** 2026-10-09 (IST) — Productized as **collat.trade**: landing page + redesigned console, central theme, SEO/GEO, an AI desk assistant (assistant-ui + Cloudflare Worker provider layer), and a **ledger-backed console** (JSON Ledger API, Path A sandbox). Prior: Grofty live signing, Daml auth hardening, BitSafe DecMan scaffolding.
 
-**Done in-repo:** AuthPolicy + requireAuthWhen on money-moving choices; vault Release/Seize as only Loan custody exits; double-lock/disburse/underpay/healthy-liquidate/wrong-asset guards; Desk.Tests + run-tests.sh; README Production readiness; Grofty CIP-103 client + **browser E2E path** (`integrations/grofty/` + `ui` Grofty panel); BitSafe DecMan **scaffold** (`integrations/bitsafe/`).
+**Done in-repo:** `AuthPolicy.trustedAuthority` + `requireAuthWhen` fail-closed (closes the self-grant hole); vault Release/Seize as only Loan custody exits; double-lock/disburse/underpay/healthy-liquidate/wrong-asset guards; Desk.Tests + run-tests.sh; Grofty CIP-103 client with a **verified live wallet signing path** (`integrations/grofty/` + `ui` Grofty panel); **ledger-backed console** (`ui/src/lib/ledgerClient.ts`, `ledgerDeskApi.ts`, `useLedger.ts`); AI assistant (OpenRouter / Workers AI / Ollama / OpenAI-compatible) with a confirm gate; BitSafe DecMan **scaffold** (`integrations/bitsafe/`).
 
-**Still blocked:** CIP-0112 MainNet pin (adapter + TOKEN_PIN.md checklist in-repo; placeholders only — do not invent hashes), Grofty **live** MainNet session (user whitelist/Party ID + DAR upload — code path ready, do not fake), **live** DecMan node / Gold Decentralized Party (apply ~4 Oct buffer ~2 Oct — else LocalNet contribution), multi-participant Canton privacy proof. Do not fake these.
+**Verified:** `daml test` 27/27; `./scripts/contrib-demo.sh` → `CONTRIB_DEMO_PASS` (happy + liquidate on Ledger API `:6865`); in-browser propose→accept→lock→disburse→repay as real ledger tx; real Grofty wallet signs `AuthorizationGranted`.
+
+**Still blocked (do not fake):** CIP-0112 MainNet pin (adapters + TOKEN_PIN.md checklist in-repo; placeholders only — do not invent hashes); a live Grofty **loan** needs the Desk DAR vetted on the participant hosting the wallet party (the wallet cannot upload packages — verified: it exposes no `/v2/dars`); **live** DecMan node / Gold Decentralized Party (apply window passed — Contribution path only); multi-participant Canton privacy proof.

@@ -50,14 +50,14 @@ Honest Contribution pack for this project:
 
 ## Exact one-shot commands
 
-From repo root `~/Projects/hackathons/current/cbtc-collateral-desk`:
+From the repo root (the `cbtc-collateral-desk` checkout):
 
 ```bash
 export PATH="$HOME/.daml/bin:$PATH"
 export JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home
 export PATH="$JAVA_HOME/bin:$PATH"
 
-cd ~/Projects/hackathons/current/cbtc-collateral-desk
+cd /path/to/cbtc-collateral-desk
 ```
 
 ### Path A — primary Contribution proof (recommended)
