@@ -399,6 +399,53 @@ export class LiveGroftyClient implements GroftyClient {
     }
   }
 
+  /**
+   * Read the connected party's balances via the wallet's ledgerApi. The wallet
+   * exposes `balance` and `wallets` resources (not part of the JSON Ledger API);
+   * their exact shape isn't published, so this tries both and parses defensively
+   * for CC / USDCx / CBTC, returning raw data too.
+   */
+  async getBalances(): Promise<{
+    ok: boolean
+    assets: { symbol: string; amount: string }[]
+    raw?: unknown
+    detail: string
+  }> {
+    const sdk = await this.loadSdk()
+    if (!this.connected) await this.connect()
+    const attempts: { resource: string; method: 'get' | 'post' }[] = [
+      { resource: 'balance', method: 'get' },
+      { resource: 'wallets', method: 'get' },
+      { resource: 'balance', method: 'post' },
+      { resource: 'wallets', method: 'post' },
+    ]
+    let lastErr = ''
+    for (const a of attempts) {
+      try {
+        const raw = await withTimeout(
+          sdk.ledgerApi({
+            requestMethod: a.method,
+            resource: a.resource,
+            ...(a.method === 'post' ? { body: {} } : {}),
+          }),
+          12_000,
+        )
+        const assets = extractBalances(raw)
+        return {
+          ok: true,
+          assets,
+          raw,
+          detail: assets.length
+            ? `${assets.length} balance(s)`
+            : `no CC/USDCx/CBTC found in the ${a.resource} response`,
+        }
+      } catch (err) {
+        lastErr = stringifyError(err)
+      }
+    }
+    return { ok: false, assets: [], detail: `wallet balance unavailable: ${lastErr}` }
+  }
+
   /** Wallet network + participant info (exposes the Ledger API URL to upload to). */
   async getNetworkInfo(): Promise<{
     networkId?: string
@@ -888,6 +935,41 @@ function extractActiveContractEntries(raw: unknown): unknown[] {
     }
   }
   return []
+}
+
+/**
+ * Best-effort extraction of CC/USDCx/CBTC balances from an unknown wallet
+ * response shape. Walks the JSON for objects carrying a symbol/instrument and an
+ * amount, normalizing common key names.
+ */
+function extractBalances(raw: unknown): { symbol: string; amount: string }[] {
+  const seen = new Map<string, string>()
+  const SYMS = /^(cc|canton ?coin|usdcx|usdc|cbtc|btc)$/i
+  const walk = (node: unknown) => {
+    if (!node || typeof node !== 'object') return
+    if (Array.isArray(node)) {
+      node.forEach(walk)
+      return
+    }
+    const o = node as Record<string, unknown>
+    const sym = String(
+      o.symbol ?? o.instrument ?? o.asset ?? o.currency ?? o.instrumentId ?? o.ticker ?? '',
+    )
+    const amt = o.amount ?? o.balance ?? o.quantity ?? o.total ?? o.value ?? o.unlockedAmount
+    if (sym && amt != null && SYMS.test(sym.trim())) {
+      seen.set(normalizeSym(sym), String(amt))
+    }
+    for (const v of Object.values(o)) walk(v)
+  }
+  walk(raw)
+  return [...seen.entries()].map(([symbol, amount]) => ({ symbol, amount }))
+}
+
+function normalizeSym(s: string): string {
+  const t = s.trim().toUpperCase().replace(/\s/g, '')
+  if (t === 'CANTONCOIN') return 'CC'
+  if (t === 'USDC') return 'USDCx'
+  return t
 }
 
 /** Collect the package-id prefixes from active-contract template ids. */
